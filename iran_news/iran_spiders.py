@@ -6,7 +6,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 # --- 配置区域 ---
 # 定义存储根目录
-SAVE_ROOT_PATH = Path("/Volumes/DRCC_DATA/11SPIDER_DATA/IRAN_NEWS")
+SAVE_ROOT_PATH = Path("/home/evaseemefly/01data/05-spiders/iran_news")
 
 # 目标 tRPC 接口
 TRPC_API_URL = "https://iran.immersivetranslate.com/api/trpc/stats.hero,timeline.list,timeline.countsByType,polling.versions?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D%2C%221%22%3A%7B%22json%22%3A%7B%22limit%22%3A30%2C%22offset%22%3A0%2C%22locale%22%3A%22zh-CN%22%7D%7D%2C%222%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D%2C%223%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D%7D"
