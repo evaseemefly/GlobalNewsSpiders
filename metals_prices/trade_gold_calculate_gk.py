@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from pathlib import Path
 
+# todo 26-04-02: 引入 APScheduler 的阻塞式调度器
+from apscheduler.schedulers.blocking import BlockingScheduler
+
 # 设置 Matplotlib 使用 'Agg' 后端，确保在 Linux 服务器（无 GUI）上也能画图
 import matplotlib
 
@@ -50,7 +53,8 @@ def plot_volatility_chart(df: pd.DataFrame, window_size: int, output_dir: Path):
     # --- 上图：黄金收盘价 ---
     ax1.plot(plot_df['timestamp_utc'], plot_df['close'], color='#1f77b4', label='Gold Close Price', linewidth=1.5)
     ax1.set_ylabel('Price (USD)', fontsize=12, fontweight='bold')
-    ax1.set_title(f'Gold Price vs. {window_size}-min Garman-Klass Volatility ({start_str} to {end_str}) by @drcc', fontsize=16,
+    ax1.set_title(f'Gold Price vs. {window_size}-min Garman-Klass Volatility ({start_str} to {end_str}) by @drcc',
+                  fontsize=16,
                   fontweight='bold', pad=20)
     ax1.grid(True, linestyle='--', alpha=0.5)
     ax1.legend(loc='upper left')
@@ -132,17 +136,35 @@ def main():
     # 路径配置
     INPUT_DATA_DIR = "gold_data"
     OUTPUT_FEATURE_DIR = "gold_features"
-    OUTPUT_PIC_DIR = "gold_gk_pics"  # 按要求新增图片存储目录
+    OUTPUT_PIC_DIR = "gold_gk_pics"
 
     # 窗口大小 (分钟)
     WINDOW = 60
 
-    process_gold_directory(
-        input_dir=INPUT_DATA_DIR,
-        feature_dir=OUTPUT_FEATURE_DIR,
-        pic_dir=OUTPUT_PIC_DIR,
-        window_size=WINDOW
-    )
+    # todo 26-04-02: 封装任务函数，方便 APScheduler 调用
+    def job_task():
+        from datetime import datetime
+        print(f"\n🕒 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 触发定时更新任务...")
+        process_gold_directory(
+            input_dir=INPUT_DATA_DIR,
+            feature_dir=OUTPUT_FEATURE_DIR,
+            pic_dir=OUTPUT_PIC_DIR,
+            window_size=WINDOW
+        )
+
+    # todo 26-04-02: 脚本启动时立即执行一次，确保能马上看到结果，不用干等 10 分钟
+    job_task()
+
+    # todo 26-04-02: 初始化并启动定时调度器 (每间隔 10 分钟运行一次)
+    scheduler = BlockingScheduler(timezone="UTC")
+    scheduler.add_job(job_task, 'interval', minutes=10, id='gk_calc_job')
+
+    print("\n🚀 定时任务已注册，系统自动运行中 (每 10 分钟更新一次特征与图表)...")
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        # todo 26-04-02: 优雅退出机制
+        print("\n🛑 波动率定时处理模块已安全停止。")
 
 
 if __name__ == "__main__":
