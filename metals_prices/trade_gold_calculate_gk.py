@@ -130,9 +130,9 @@ def main():
     print("=== 量化特征工程：全局波动率计算与可视化模块启动 ===")
 
     # 路径配置
-    INPUT_DATA_DIR = "gold_data"
-    OUTPUT_FEATURE_DIR = "gold_features"
-    OUTPUT_PIC_DIR = "gold_gk_pics"  # 按要求新增图片存储目录
+    INPUT_DATA_DIR = "/home/evaseemefly/01data/05-spiders/market_prices"
+    OUTPUT_FEATURE_DIR = "/home/evaseemefly/01data/05-spiders/output/gold_features"
+    OUTPUT_PIC_DIR = "/home/evaseemefly/01data/05-spiders/output/gold_gk_pics"  # 按要求新增图片存储目录
 
     # 窗口大小 (分钟)
     WINDOW = 60

@@ -6,8 +6,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 # --- 配置区域 ---
 # 替换为你申请到的免费 API Key
-TWELVE_DATA_API_KEY = ""
-SAVE_ROOT_PATH = Path("news_data/market_prices")
+TWELVE_DATA_API_KEY = "fc2d83de92264dd38668ae19f44a806d"
+SAVE_ROOT_PATH = Path("/home/evaseemefly/01data/05-spiders/market_prices")
 # Twelve Data 的代码格式略有不同
 # SYMBOLS = "XAU/USD,XAG/USD"
 SYMBOLS = "XAU/USD"
@@ -83,7 +83,16 @@ def main():
 
     scheduler = BlockingScheduler(timezone="UTC")
     # 每分钟的第 5 秒执行，给 API 一点数据更新的缓冲时间
-    scheduler.add_job(fetch_market_data, 'cron', minute='*', second='05', id='market_sync')
+    # scheduler.add_job(fetch_market_data, 'cron', minute='*', second='05', id='market_sync')
+
+    # 修改后的调度代码
+    scheduler.add_job(
+        fetch_market_data, 
+        'cron', 
+        minute='*/5',   # 每 5 分钟执行一次
+        second='05',    # 在每 5 分钟的第 5 秒执行，避开整点网络拥堵
+        id='market_sync'
+    )
 
     try:
         scheduler.start()
