@@ -5,11 +5,12 @@ from pathlib import Path
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 # --- 配置区域 ---
-# 替换为你申请到的免费 API Key
 TWELVE_DATA_API_KEY = "fc2d83de92264dd38668ae19f44a806d"
-SAVE_ROOT_PATH = Path("/home/evaseemefly/01data/05-spiders/market_prices")
-# Twelve Data 的代码格式略有不同
-# SYMBOLS = "XAU/USD,XAG/USD"
+# home
+# SAVE_ROOT_PATH = Path("/home/evaseemefly/01data/05-spiders/market_prices")
+# workplace
+SAVE_ROOT_PATH = Path("/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/market_prices")
+
 SYMBOLS = "XAU/USD"
 
 # 用于内存去重
@@ -21,28 +22,27 @@ def fetch_market_data():
     date_str = now_utc.format('YYYY-MM-DD')
     print(f"[{now_utc.format('YYYY-MM-DD HH:mm:ss')} UTC] 正在同步全球行情...")
 
-    # 为了稳定，我们对每个品种发起独立请求
     symbols_to_fetch = ["XAU/USD", "XAG/USD"]
     latest_records = []
 
     for sym in symbols_to_fetch:
-        # 单独请求每一个 symbol
-        url = f"https://api.twelvedata.com/time_series?symbol={sym}&interval=1min&apikey={TWELVE_DATA_API_KEY}&outputsize=1"
+        # todo 26-04-08: 修复核心漏洞。
+        # 1. interval 改为 5min，与你的调度器 5 分钟频次严格对齐，获取标准的 5 分钟 OHLC K 线。
+        # 2. 增加 &timezone=UTC 参数，确保 API 返回的时间戳是绝对的 UTC 时间，消除 10 小时时差。
+        url = f"https://api.twelvedata.com/time_series?symbol={sym}&interval=5min&apikey={TWELVE_DATA_API_KEY}&outputsize=1&timezone=UTC"
 
         try:
             response = requests.get(url, timeout=15)
             data = response.json()
 
-            # 对应你截图中显示的结构：直接从 data 中获取 status 和 values
             if data.get("status") == "ok":
                 val = data["values"][0]
                 current_ts = arrow.get(val["datetime"]).format('YYYY-MM-DD HH:mm:ss')
 
-                # 去重校验
                 if current_ts != last_saved_ts[sym]:
                     record = {
                         "timestamp_utc": current_ts,
-                        "symbol": sym.replace("/", ""),  # 存储为 XAUUSD
+                        "symbol": sym.replace("/", ""),
                         "open": val["open"],
                         "high": val["high"],
                         "low": val["low"],
@@ -52,7 +52,6 @@ def fetch_market_data():
                     latest_records.append(record)
                     last_saved_ts[sym] = current_ts
             else:
-                # 如果 XAG/USD 依然报 403，这里会打印提示，但不会影响 XAU/USD 的抓取
                 print(f"警告: {sym} 获取失败 - {data.get('message', '权限受限')}")
 
         except Exception as e:
@@ -82,15 +81,14 @@ def main():
     fetch_market_data()  # 立即执行一次
 
     scheduler = BlockingScheduler(timezone="UTC")
-    # 每分钟的第 5 秒执行，给 API 一点数据更新的缓冲时间
-    # scheduler.add_job(fetch_market_data, 'cron', minute='*', second='05', id='market_sync')
 
-    # 修改后的调度代码
+    # todo 26-04-08: 调度器配置保持不变，每 5 分钟的第 5 秒执行。
+    # 现在它会去抓取上一根刚刚闭合的 5 分钟 K 线。
     scheduler.add_job(
-        fetch_market_data, 
-        'cron', 
-        minute='*/5',   # 每 5 分钟执行一次
-        second='05',    # 在每 5 分钟的第 5 秒执行，避开整点网络拥堵
+        fetch_market_data,
+        'cron',
+        minute='*/5',
+        second='05',
         id='market_sync'
     )
 

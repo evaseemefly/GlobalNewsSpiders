@@ -1,5 +1,7 @@
 ## 目录结构：
 
+### 工程目录
+
 ```
 (py39) evaseemefly@Mac-Studio GlobalNewsSpiders % tree -L 2
 .
@@ -23,6 +25,52 @@
 
 9 directories, 9 files
 ```
+
+
+
+### 数据存储目录
+
+#### 1- 数据存储根目录：
+
+```
+/home/evaseemefly/01data
+```
+
+#### 2- 当前存储样例及目录结构
+
+```
+(base) evaseemefly@evaseemefly-Precision-7530:~/01data$ tree -L 4
+.
+├── 01-openclaw
+│   └── 测试连接qwen.shell
+├── 05-spiders
+│   ├── iran_news
+│   │   ├── iran_conflict_news_2026-04-06.csv
+│   │   └── iran_conflict_news_2026-04-07.csv
+│   ├── macro_data
+│   │   ├── macro_daily_2026-04-06.csv
+│   │   └── macro_daily_2026-04-07.csv
+│   ├── market_prices
+│   │   ├── precious_metals_2026-04-06.csv
+│   │   └── precious_metals_2026-04-07.csv
+│   └── output
+│       ├── gold_features
+│       │   ├── gold_features_20260320_to_20260406.csv
+│       │   └── gold_features_20260320_to_20260407.csv
+│       └── gold_gk_pics
+│           ├── gk_vol_60m_2026-03-21_to_2026-04-06.png
+│           └── gk_vol_60m_2026-03-21_to_2026-04-07.png
+└── 05-spiders.zip
+```
+
+其中
+
+```
+│   └── output
+│       ├── gold_features
+```
+
+这个目录
 
 ## 运行脚本说明
 

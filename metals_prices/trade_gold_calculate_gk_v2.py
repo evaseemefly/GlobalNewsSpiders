@@ -1,3 +1,5 @@
+import pathlib
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -165,31 +167,39 @@ def process_gold_directory(input_dir: str, feature_dir: str, pic_dir: str, windo
 
 def main():
     print("=== 量化特征工程：K线重构与极值标记启动 ===")
+    ROOT_PATH: pathlib.Path = pathlib.Path('/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders')
 
-    INPUT_DATA_DIR = "gold_data"
-    OUTPUT_FEATURE_DIR = "gold_features"
-    OUTPUT_PIC_DIR = "gold_gk_pics"
+    INPUT_DATA_DIR = ROOT_PATH / "market_prices"
+    OUTPUT_FEATURE_DIR = ROOT_PATH / 'output' / "gold_features"
+    OUTPUT_PIC_DIR = ROOT_PATH / 'output' / "gold_gk_pics"
     WINDOW = 60
 
-    def job_task():
-        from datetime import datetime
-        print(f"\n🕒 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 触发定时更新任务...")
-        process_gold_directory(
-            input_dir=INPUT_DATA_DIR,
-            feature_dir=OUTPUT_FEATURE_DIR,
-            pic_dir=OUTPUT_PIC_DIR,
-            window_size=WINDOW
-        )
+    # def job_task():
+    #     from datetime import datetime
+    #     print(f"\n🕒 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 触发定时更新任务...")
+    #     process_gold_directory(
+    #         input_dir=str(INPUT_DATA_DIR),
+    #         feature_dir=str(OUTPUT_FEATURE_DIR),
+    #         pic_dir=str(OUTPUT_PIC_DIR),
+    #         window_size=WINDOW
+    #     )
+    #
+    # job_task()
 
-    job_task()
+    process_gold_directory(
+        input_dir=str(INPUT_DATA_DIR),
+        feature_dir=str(OUTPUT_FEATURE_DIR),
+        pic_dir=str(OUTPUT_PIC_DIR),
+        window_size=WINDOW
+    )
 
-    scheduler = BlockingScheduler(timezone="UTC")
-    scheduler.add_job(job_task, 'interval', minutes=10, id='gk_calc_job')
-
-    try:
-        scheduler.start()
-    except (KeyboardInterrupt, SystemExit):
-        print("\n🛑 模块已安全停止。")
+    # scheduler = BlockingScheduler(timezone="UTC")
+    # scheduler.add_job(job_task, 'interval', minutes=10, id='gk_calc_job')
+    #
+    # try:
+    #     scheduler.start()
+    # except (KeyboardInterrupt, SystemExit):
+    #     print("\n🛑 模块已安全停止。")
 
 
 if __name__ == "__main__":
