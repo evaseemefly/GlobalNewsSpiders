@@ -213,7 +213,10 @@ def process_gold_directory(input_dir: str, feature_dir: str, pic_dir: str, windo
 
 def main():
     print("=== 量化特征工程：K线重构与视觉增强启动 ===")
-    ROOT_PATH: pathlib.Path = pathlib.Path('/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders')
+    # workplace
+    # ROOT_PATH: pathlib.Path = pathlib.Path('/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders')
+    # home
+    ROOT_PATH: pathlib.Path = pathlib.Path('/home/evaseemefly/01data/05-spiders')
 
     INPUT_DATA_DIR = ROOT_PATH / "market_prices"
     OUTPUT_FEATURE_DIR = ROOT_PATH / 'output' / "gold_features"
@@ -226,6 +229,18 @@ def main():
         pic_dir=str(OUTPUT_PIC_DIR),
         window_size=WINDOW
     )
+
+
+    # todo 26-04-02: 初始化并启动定时调度器 (每间隔 10 分钟运行一次)
+    scheduler = BlockingScheduler(timezone="UTC")
+    scheduler.add_job(process_gold_directory, 'interval', minutes=10, id='gk_calc_job')
+
+    print("\n🚀 定时任务已注册，系统自动运行中 (每 10 分钟更新一次特征与图表)...")
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        # todo 26-04-02: 优雅退出机制
+        print("\n🛑 波动率定时处理模块已安全停止。")
 
 
 if __name__ == "__main__":

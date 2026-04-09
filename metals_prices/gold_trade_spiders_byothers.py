@@ -7,9 +7,9 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 # --- 配置区域 ---
 TWELVE_DATA_API_KEY = "fc2d83de92264dd38668ae19f44a806d"
 # home
-# SAVE_ROOT_PATH = Path("/home/evaseemefly/01data/05-spiders/market_prices")
+SAVE_ROOT_PATH = Path("/home/evaseemefly/01data/05-spiders/market_prices")
 # workplace
-SAVE_ROOT_PATH = Path("/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/market_prices")
+# SAVE_ROOT_PATH = Path("/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/market_prices")
 
 SYMBOLS = "XAU/USD"
 
