@@ -218,6 +218,9 @@ def main():
     # home
     ROOT_PATH: pathlib.Path = pathlib.Path('/home/evaseemefly/01data/05-spiders')
 
+    # home-workplace
+    # ROOT_PATH: pathlib.Path = pathlib.Path('/home/evaseemefly/01data/05-spiders')
+
     INPUT_DATA_DIR = ROOT_PATH / "market_prices"
     OUTPUT_FEATURE_DIR = ROOT_PATH / 'output' / "gold_features"
     OUTPUT_PIC_DIR = ROOT_PATH / 'output' / "gold_gk_pics"
@@ -230,16 +233,28 @@ def main():
         window_size=WINDOW
     )
 
+    # 修复：定义一个无参的包装函数
+    def job_task():
+        from datetime import datetime
+        print(f"\n🕒 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 触发定时特征重构任务...")
+        process_gold_directory(
+            input_dir=str(INPUT_DATA_DIR),
+            feature_dir=str(OUTPUT_FEATURE_DIR),
+            pic_dir=str(OUTPUT_PIC_DIR),
+            window_size=WINDOW
+        )
 
-    # todo 26-04-02: 初始化并启动定时调度器 (每间隔 10 分钟运行一次)
+    # 程序启动时立即执行一次
+    job_task()
+
     scheduler = BlockingScheduler(timezone="UTC")
-    scheduler.add_job(process_gold_directory, 'interval', minutes=10, id='gk_calc_job')
+    # 这次只需要传这个无参的 job_task 进去即可
+    scheduler.add_job(job_task, 'interval', minutes=10, id='gk_calc_job')
 
     print("\n🚀 定时任务已注册，系统自动运行中 (每 10 分钟更新一次特征与图表)...")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
-        # todo 26-04-02: 优雅退出机制
         print("\n🛑 波动率定时处理模块已安全停止。")
 
 
