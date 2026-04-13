@@ -30,6 +30,17 @@
 
 ### 数据存储目录
 
+#### s1- 常用目录
+
+| 存储内容                       | 目录                                                     | 备注 |
+| ------------------------------ | -------------------------------------------------------- | ---- |
+| 基于实时金价提取后并添加波动率 | /home/evaseemefly/01data/05-spiders/output/gold_features |      |
+| 存储波动率及金价 k 线图        | /home/evaseemefly/01data/05-spiders/output/gold_gk_pics  |      |
+| 5 分钟实时金价原始数据         | /home/evaseemefly/01data/05-spiders/market_prices        |      |
+| 10 年期美债以及美元指数        | /home/evaseemefly/01data/05-spiders/macro_data           |      |
+
+
+
 #### 1- 数据存储根目录：
 
 ```

@@ -12,6 +12,7 @@ matplotlib.use('Agg')
 
 
 def calculate_gk_volatility(df: pd.DataFrame, window_size: int = 60) -> pd.DataFrame:
+    """计算 Garman-Klass (GK) 波动率 - 对日内连续波动极度敏锐"""
     df_calc = df.copy()
     constant = 2 * np.log(2) - 1
 
@@ -29,9 +30,58 @@ def calculate_gk_volatility(df: pd.DataFrame, window_size: int = 60) -> pd.DataF
     return df_calc
 
 
-def plot_candlestick_and_volatility(df: pd.DataFrame, window_size: int, output_dir: Path):
-    """绘制最近 7 天的 K 线图和波动率，包含去断层、均线、警戒线及周末剔除"""
-    vol_col = f'GK_volatility_{window_size}m'
+# todo 26-04-13: 新增 Yang-Zhang (YZ) 波动率计算引擎
+def calculate_yz_volatility(df: pd.DataFrame, window_size: int = 60) -> pd.DataFrame:
+    """计算 Yang-Zhang (YZ) 波动率 - 完美捕捉隔夜/周末跳空缺口"""
+    df_calc = df.copy()
+    eps = np.finfo(float).eps
+
+    # 核心：获取真实的“上一个有效收盘价”，完美跨越周末 48 小时的 NaN 假死数据
+    prev_close = df_calc['close'].ffill().shift(1)
+
+    # 1. 计算三组对数收益率
+    # 隔夜跳空幅度 (今日开盘 / 昨日收盘)
+    log_o_c1 = np.log(df_calc['open'] / (prev_close + eps))
+    # 日内波动幅度 (今日收盘 / 今日开盘)
+    log_c_o = np.log(df_calc['close'] / (df_calc['open'] + eps))
+    # 高低振幅
+    log_h_o = np.log(df_calc['high'] / (df_calc['open'] + eps))
+    log_l_o = np.log(df_calc['low'] / (df_calc['open'] + eps))
+
+    # 2. 计算 YZ 模型的三个方差分量
+    # V_o: 隔夜跳空方差 (rolling var)
+    V_o = log_o_c1.rolling(window=window_size, min_periods=2).var()
+    # V_c: 日内开收盘方差 (rolling var)
+    V_c = log_c_o.rolling(window=window_size, min_periods=2).var()
+    # V_rs: 盘中震荡的 Rogers-Satchell 均值
+    rs_term = log_h_o * (log_h_o - log_c_o) + log_l_o * (log_l_o - log_c_o)
+    V_rs = rs_term.rolling(window=window_size, min_periods=1).mean()
+
+    # 因为 var 在样本数为 1 时返回 NaN，安全起见填补 0
+    V_o = V_o.fillna(0)
+    V_c = V_c.fillna(0)
+    V_rs = V_rs.fillna(0)
+
+    # 3. 计算组合权重系数 k
+    n = window_size
+    k = 0.34 / (1.34 + (n + 1) / max(1, n - 1))
+
+    # 4. 合成终极 YZ 波动率
+    df_calc['YZ_variance'] = V_o + k * V_c + (1 - k) * V_rs
+
+    vol_col_name = f'YZ_volatility_{window_size}m'
+    df_calc[vol_col_name] = np.sqrt(df_calc['YZ_variance'])
+
+    # 幽灵波动率熔断机制
+    df_calc.loc[df_calc['close'].isna(), vol_col_name] = np.nan
+
+    return df_calc
+
+
+# todo 26-04-13: 将绘图函数参数化，支持动态接收不同的模型名称（vol_type）
+def plot_candlestick_and_volatility(df: pd.DataFrame, window_size: int, output_dir: Path, vol_type: str = 'GK'):
+    """绘制动态可视化看板，支持 GK 或 YZ 类型"""
+    vol_col = f'{vol_type}_volatility_{window_size}m'
     plot_df = df.copy()
 
     if plot_df.empty:
@@ -41,14 +91,11 @@ def plot_candlestick_and_volatility(df: pd.DataFrame, window_size: int, output_d
     start_time = latest_time - pd.Timedelta(days=7)
     plot_df = plot_df[plot_df['timestamp_utc'] >= start_time].copy()
 
-    # todo 26-04-09: 关键修改 - 彻底剔除周末假死数据，把周五和周一无缝连接
     plot_df = plot_df.dropna(subset=['close']).reset_index(drop=True)
 
     if plot_df.empty:
         return
 
-    # todo 26-04-09: 视觉优化 2 - 在剔除了周末的“干净连续数组”上计算均线
-    # 这样 MA20 就不会被周末的假死数据拉成一条直线了
     plot_df['MA20'] = plot_df['close'].rolling(window=20, min_periods=1).mean()
     plot_df['MA60'] = plot_df['close'].rolling(window=60, min_periods=1).mean()
 
@@ -58,21 +105,15 @@ def plot_candlestick_and_volatility(df: pd.DataFrame, window_size: int, output_d
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
     plt.subplots_adjust(hspace=0.05)
 
-    # todo 26-04-09: 视觉优化 1 - 核心技巧：使用连续的整数序列作为 X 轴避开物理断层
     x_indices = np.arange(len(plot_df))
 
-    # ====================
-    # 上图：绘制 K 线图与均线
-    # ====================
     up_mask = plot_df['close'] >= plot_df['open']
     down_mask = plot_df['close'] < plot_df['open']
-
     width = 0.6
 
     ax1.vlines(x_indices[up_mask], plot_df.loc[up_mask, 'low'], plot_df.loc[up_mask, 'high'], color='red', linewidth=1)
     ax1.vlines(x_indices[down_mask], plot_df.loc[down_mask, 'low'], plot_df.loc[down_mask, 'high'], color='green',
                linewidth=1)
-
     ax1.bar(x_indices[up_mask], plot_df.loc[up_mask, 'close'] - plot_df.loc[up_mask, 'open'],
             bottom=plot_df.loc[up_mask, 'open'], color='red', width=width)
     ax1.bar(x_indices[down_mask], plot_df.loc[down_mask, 'open'] - plot_df.loc[down_mask, 'close'],
@@ -82,7 +123,9 @@ def plot_candlestick_and_volatility(df: pd.DataFrame, window_size: int, output_d
     ax1.plot(x_indices, plot_df['MA60'], color='#3498db', linewidth=1.5, label='MA60', alpha=0.85)
 
     ax1.set_ylabel('Price (USD)', fontsize=12, fontweight='bold')
-    ax1.set_title(f'Gold 5m Candlestick & GK Volatility ({start_str} to {end_str} / Last 7 Days)', fontsize=16,
+
+    # 标题动态显示当前使用的是哪种模型
+    ax1.set_title(f'Gold 5m Candlestick & {vol_type} Volatility ({start_str} to {end_str} / Last 7 Days)', fontsize=16,
                   fontweight='bold', pad=20)
     ax1.grid(True, linestyle='--', alpha=0.5)
     ax1.legend(loc='upper left')
@@ -100,19 +143,15 @@ def plot_candlestick_and_volatility(df: pd.DataFrame, window_size: int, output_d
                      arrowprops=dict(arrowstyle="->", color='darkgreen'), ha='center', color='darkgreen',
                      fontweight='bold', va='top')
 
-    # ====================
-    # 下图：绘制波动率与警戒线
-    # ====================
     ax2.fill_between(x_indices, plot_df[vol_col], color='#ff7f0e', alpha=0.3)
-    ax2.plot(x_indices, plot_df[vol_col], color='#d62728', linewidth=1, label='GK Volatility')
+    # 图例动态显示
+    ax2.plot(x_indices, plot_df[vol_col], color='#d62728', linewidth=1, label=f'{vol_type} Volatility')
 
-    # todo 26-04-09: 视觉优化 3 - 绘制动态警戒线
     vol_mean = plot_df[vol_col].mean()
     vol_std = plot_df[vol_col].std()
     warning_line = vol_mean + 2 * vol_std
 
     ax2.axhline(warning_line, color='purple', linestyle='-.', linewidth=1.2, label=f'Alert Line (+2 Std)')
-
     ax2.set_ylabel('Volatility', fontsize=12, fontweight='bold')
     ax2.set_xlabel('Time (UTC)', fontsize=12)
     ax2.grid(True, linestyle='--', alpha=0.5)
@@ -122,27 +161,43 @@ def plot_candlestick_and_volatility(df: pd.DataFrame, window_size: int, output_d
     if not valid_vol.empty:
         max_v_idx = valid_vol[vol_col].idxmax()
         max_v = valid_vol.loc[max_v_idx, vol_col]
-
         ax2.annotate(f'Max: {max_v:.4f}', xy=(max_v_idx, max_v), xytext=(0, 15), textcoords='offset points',
                      arrowprops=dict(arrowstyle="->", color='purple'), ha='center', color='purple', fontweight='bold')
 
-    # ====================
-    # 重新贴上日期标签
-    # ====================
     step = max(1, len(plot_df) // 10)
     tick_indices = x_indices[::step]
     tick_labels = plot_df['timestamp_utc'].dt.strftime('%m-%d\n%H:%M').iloc[::step]
-
     ax2.set_xticks(tick_indices)
     ax2.set_xticklabels(tick_labels, rotation=0, ha='center')
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    # filename = output_dir / f"gk_vol_{window_size}m_latest_7days.png"
-    # todo 26-04-10: 动态命名图片文件，实现每日归档
-    # 移除写死的 'latest_7days.png'，利用函数开头已经提取好的 start_str 和 end_str
-    filename = output_dir / f"gk_vol_{window_size}m_{start_str}_to_{end_str}.png"
+
+    # 动态命名图片文件：区分 gk 或 yz 前缀
+    filename = output_dir / f"{vol_type.lower()}_vol_{window_size}m_{start_str}_to_{end_str}.png"
     plt.savefig(filename, dpi=150, bbox_inches='tight')
     plt.close(fig)
+
+
+# todo 26-04-13: 抽离通用的 CSV 保存逻辑，支持两套体系分别存储
+def save_feature_csv(df_processed: pd.DataFrame, window_size: int, feature_path: Path, vol_type: str):
+    """通用特征保存器，动态填补对应列的 NaN 并生成对应前缀的 CSV"""
+    csv_df = df_processed.copy()
+    csv_df['symbol'] = csv_df['symbol'].fillna("XAUUSD")
+    csv_df['fetch_time_utc'] = csv_df['fetch_time_utc'].fillna("Missing")
+
+    # 动态填补目标模型的特征列
+    cols_to_fill = ['open', 'high', 'low', 'close', f'{vol_type}_variance', f'{vol_type}_volatility_{window_size}m']
+    csv_df[cols_to_fill] = csv_df[cols_to_fill].fillna(-999)
+
+    feature_path.mkdir(parents=True, exist_ok=True)
+    start_date = csv_df['timestamp_utc'].min().strftime('%Y%m%d')
+    end_date = csv_df['timestamp_utc'].max().strftime('%Y%m%d')
+
+    # 文件命名带上模型后缀，例如: gold_features_gk_20260406_to_20260413.csv
+    final_output_file = feature_path / f"gold_features_{vol_type.lower()}_{start_date}_to_{end_date}.csv"
+
+    csv_df.to_csv(final_output_file, index=False, encoding='utf-8-sig')
+    print(f"💾 {vol_type} 特征 CSV 已独立保存: {final_output_file}")
 
 
 def process_gold_directory(input_dir: str, feature_dir: str, pic_dir: str, window_size: int = 60):
@@ -162,60 +217,44 @@ def process_gold_directory(input_dir: str, feature_dir: str, pic_dir: str, windo
     df_all = pd.concat(df_list, ignore_index=True)
     df_all['timestamp_utc'] = pd.to_datetime(df_all['timestamp_utc'])
 
-    # todo 26-04-09: 底层防线 1 - 洗掉历史遗留的 -999.0
     df_all = df_all.replace(-999.0, np.nan)
-
-    # 强制对齐到绝对的 5 分钟网格
     df_all['timestamp_utc'] = df_all['timestamp_utc'].dt.floor('5min')
 
-    # todo 26-04-09: 底层防线 2 - 物理周末熔断 (精准屏蔽周五 21:00 至 周日 22:00 UTC)
     is_weekend = (df_all['timestamp_utc'].dt.dayofweek == 5) | \
                  ((df_all['timestamp_utc'].dt.dayofweek == 4) & (df_all['timestamp_utc'].dt.hour >= 21)) | \
                  ((df_all['timestamp_utc'].dt.dayofweek == 6) & (df_all['timestamp_utc'].dt.hour < 22))
 
-    # todo 26-04-09: 底层防线 3 - 流动性假期熔断 (专杀 Good Friday 和僵尸 API)
-    # 黄金在正常交易时段 5 分钟振幅通常大于 1.0 美元。
-    # 如果连续 3 根 K 线（15分钟）的最高低点振幅都不超过 0.3 美元，绝对是休市噪音。
     amplitude = df_all['high'] - df_all['low']
     is_dead_feed = amplitude.rolling(window=3, min_periods=1).max() < 0.3
 
-    # 强制将这些假死时段的行情设为 NaN，彻底杀死僵尸数据
     df_all.loc[is_weekend | is_dead_feed, ['open', 'high', 'low', 'close']] = np.nan
 
-    # 去重
     df_all = df_all.sort_values(['timestamp_utc', 'fetch_time_utc']).drop_duplicates(subset=['timestamp_utc'],
                                                                                      keep='last')
-
     df_all = df_all.set_index('timestamp_utc')
     df_all = df_all.resample('5min').asfreq().reset_index()
 
-    print(f"⚙️ 正在计算 Garman-Klass 波动率...")
-    df_processed = calculate_gk_volatility(df_all, window_size=window_size)
+    # ==========================
+    # todo 26-04-13: 双分支特征工厂
+    # ==========================
 
-    print(f"🎨 正在生成最近 7 天 K 线图与极值标记...")
-    # 这里传进去的 df_processed 已经被挖空了假期数据，画图函数中的 dropna 会完美衔接它们
-    plot_candlestick_and_volatility(df_processed, window_size, pic_path)
+    # --- 分支一：执行 GK 处理流程 ---
+    print(f"⚙️ [1/2] 正在计算并生成 GK (日内敏感型) 波动率体系...")
+    df_gk = calculate_gk_volatility(df_all, window_size=window_size)
+    plot_candlestick_and_volatility(df_gk, window_size, pic_path, vol_type='GK')
+    save_feature_csv(df_gk, window_size, feature_path, vol_type='GK')
 
-    csv_df = df_processed.copy()
-    csv_df['symbol'] = csv_df['symbol'].fillna("XAUUSD")
-    csv_df['fetch_time_utc'] = csv_df['fetch_time_utc'].fillna("Missing")
+    # --- 分支二：执行 YZ 处理流程 ---
+    print(f"⚙️ [2/2] 正在计算并生成 YZ (跳空免疫型) 波动率体系...")
+    df_yz = calculate_yz_volatility(df_all, window_size=window_size)
+    plot_candlestick_and_volatility(df_yz, window_size, pic_path, vol_type='YZ')
+    save_feature_csv(df_yz, window_size, feature_path, vol_type='YZ')
 
-    # 填补空值为 -999，供下一次读取或模型使用
-    cols_to_fill = ['open', 'high', 'low', 'close', 'GK_variance', f'GK_volatility_{window_size}m']
-    csv_df[cols_to_fill] = csv_df[cols_to_fill].fillna(-999)
-
-    feature_path.mkdir(parents=True, exist_ok=True)
-    start_date = csv_df['timestamp_utc'].min().strftime('%Y%m%d')
-    end_date = csv_df['timestamp_utc'].max().strftime('%Y%m%d')
-    final_output_file = feature_path / f"gold_features_{start_date}_to_{end_date}.csv"
-
-    csv_df.to_csv(final_output_file, index=False, encoding='utf-8-sig')
-    print(f"💾 聚合特征 CSV 已保存，缺失值已填充为 -999: {final_output_file}")
     print("-" * 60)
 
 
 def main():
-    print("=== 量化特征工程：K线重构与视觉增强启动 ===")
+    print("=== 量化特征工程：多重波动率双引擎启动 ===")
     # workplace
     # ROOT_PATH: pathlib.Path = pathlib.Path('/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders')
     # home
@@ -229,14 +268,6 @@ def main():
     OUTPUT_PIC_DIR = ROOT_PATH / 'output' / "gold_gk_pics"
     WINDOW = 60
 
-    process_gold_directory(
-        input_dir=str(INPUT_DATA_DIR),
-        feature_dir=str(OUTPUT_FEATURE_DIR),
-        pic_dir=str(OUTPUT_PIC_DIR),
-        window_size=WINDOW
-    )
-
-    # 修复：定义一个无参的包装函数
     def job_task():
         from datetime import datetime
         print(f"\n🕒 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 触发定时特征重构任务...")
@@ -247,14 +278,12 @@ def main():
             window_size=WINDOW
         )
 
-    # 程序启动时立即执行一次
     job_task()
 
     scheduler = BlockingScheduler(timezone="UTC")
-    # 这次只需要传这个无参的 job_task 进去即可
     scheduler.add_job(job_task, 'interval', minutes=10, id='gk_calc_job')
 
-    print("\n🚀 定时任务已注册，系统自动运行中 (每 10 分钟更新一次特征与图表)...")
+    print("\n🚀 双引擎定时任务已注册，系统自动运行中 (每 10 分钟生成独立的两套指标)...")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
