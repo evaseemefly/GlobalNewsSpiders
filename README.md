@@ -2,7 +2,7 @@
 
 ### 工程目录
 
-```
+```sh
 (py39) evaseemefly@Mac-Studio GlobalNewsSpiders % tree -L 2
 .
 ├── README.md
@@ -20,6 +20,7 @@
 │   ├── trade_factors_askshare_test.py
 │   ├── trade_factors_spider.py
 │   └── trade_gold_calculate_gk.py
+│   └── trade_factors_yfinace_260415.py  									# 26-04-15 使用yfinace获取重要指标数据
 └── news_data
     └── market_prices
 
@@ -91,7 +92,16 @@
 
 自动获取美伊的实时新闻，并存储至 csv 文件中。
 
-### 2- 获取交易数据
+### 2- 获取交易数据（十年期美债｜美元指数｜VIX）
+
+* `trade_factors_yfinace_260415.py`  26-04-15 修改后的获取`DXY`  `US10Y` `VIX` 数据（使用 yfinance 接口）
+
+  `DXY`  `VIX` 获取 5 分钟级别的数据（更新频率高）;
+
+  `US10Y`  （更新频率低）
+
+  * `US10Y` （10年期美债收益率）反映的是债券市场的交易结果。美债市场并不是像外汇（DXY）那样近乎 24 小时高频波动的，它有严格的交易时间和休市期（且流动性集中在纽约时段）。在你抓取数据时，亚洲早盘/欧洲时段的美债市场可能处于休市或极低流动性状态，所以雅虎财经返回的是上一个有效交易日的最终定价。这在宏观对冲中是完全正常的，不需要让它强制高频。
+  * 对于 `DXY`  `VIX`  虽然我们无法消除 10 分钟的延迟，但我们可以**约束 API，让它不要返回零散的 `1m` 时间（比如 07:38），而是返回严格对齐到 `5m` 刻度的 K 线（比如 07:35）**。
 
 ### 3- 获取实时黄金金价
 
@@ -102,8 +112,6 @@
 `trade_gold_calculate_gk.py`
 
 自动处理近期的黄金实时金价以及计算波动率，并生成图片。
-
-
 
 ## TODO
 
