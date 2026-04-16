@@ -19,8 +19,9 @@
 │   ├── trade_factors_askshare_2026.py
 │   ├── trade_factors_askshare_test.py
 │   ├── trade_factors_spider.py
-│   └── trade_gold_calculate_gk.py
-│   └── trade_factors_yfinace_260415.py  									# 26-04-15 使用yfinace获取重要指标数据
+│   ├── trade_gold_calculate_gk.py
+│   ├── trade_factors_yfinace_260415.py  									# 26-04-15 使用yfinace获取重要指标数据
+│   └── trade_merge_calculate_all_yfinance_v1.py				  # 26-04-16 更新后的计算波动率以及绘制所有指标参数
 └── news_data
     └── market_prices
 
