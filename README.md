@@ -33,12 +33,13 @@
 
 #### s1- 常用目录
 
-| 存储内容                       | 目录                                                     | 备注 |
-| ------------------------------ | -------------------------------------------------------- | ---- |
-| 基于实时金价提取后并添加波动率 | /home/evaseemefly/01data/05-spiders/output/gold_features |      |
-| 存储波动率及金价 k 线图        | /home/evaseemefly/01data/05-spiders/output/gold_gk_pics  |      |
-| 5 分钟实时金价原始数据         | /home/evaseemefly/01data/05-spiders/market_prices        |      |
-| 10 年期美债以及美元指数        | /home/evaseemefly/01data/05-spiders/macro_data           |      |
+| 存储内容                        | 目录                                                     | 备注                                 |
+| ------------------------------- | -------------------------------------------------------- | ------------------------------------ |
+| 基于实时金价提取后并添加波动率  | /home/evaseemefly/01data/05-spiders/output/gold_features |                                      |
+| 存储波动率及金价 k 线图         | /home/evaseemefly/01data/05-spiders/output/gold_gk_pics  |                                      |
+| 5 分钟实时金价原始数据          | /home/evaseemefly/01data/05-spiders/market_prices        |                                      |
+| 10 年期美债以及美元指数         | /home/evaseemefly/01data/05-spiders/macro_data           |                                      |
+| 获取的美债，美元指数以及vix指数 | /home/evaseemefly/01data/05-spiders/macro_realtime       | * 目前使用yfinance获取的各类宏观指数 |
 
 
 
@@ -50,7 +51,7 @@
 
 #### 2- 当前存储样例及目录结构
 
-```
+```shell
 (base) evaseemefly@evaseemefly-Precision-7530:~/01data$ tree -L 4
 .
 ├── 01-openclaw
@@ -62,7 +63,10 @@
 │   ├── macro_data
 │   │   ├── macro_daily_2026-04-06.csv
 │   │   └── macro_daily_2026-04-07.csv
-│   ├── market_prices
+│   ├── macro_realtime																	# 026-04-15 新增通过 yfinance 获取的宏观指标
+│   │   ├── macro_realtime_2026-04-15.csv
+│   │   └── macro_realtime_2026-04-16.csv
+│   ├── market_prices																		# 金银实时价格
 │   │   ├── precious_metals_2026-04-06.csv
 │   │   └── precious_metals_2026-04-07.csv
 │   └── output
@@ -83,6 +87,24 @@
 ```
 
 这个目录
+
+## 数据说明
+
+### 1- 各类数据说明
+
+* 各类宏观指数
+
+  * 26-04-16
+
+  ```json
+  timestamp_utc,fetch_time_utc,DXY,DXY_time,US10Y,US10Y_time,VIX,VIX_time
+  2026-04-16 00:00:00,2026-04-16 00:00:10,98.011,2026-04-15 23:50:00,4.282,2026-04-15 18:55:00,18.17,2026-04-15 20:10:00
+  2026-04-16 00:05:00,2026-04-16 00:05:10,98.01,2026-04-15 23:55:00,4.282,2026-04-15 18:55:00,18.17,2026-04-15 20:10:00
+  2026-04-16 00:10:00,2026-04-16 00:10:10,98.003,2026-04-16 00:00:00,4.282,2026-04-15 18:55:00,18.17,2026-04-15 20:10:00
+  2026-04-16 00:15:00,2026-04-16 00:15:10,98.021,2026-04-16 00:05:00,4.282,2026-04-15 18:55:00,18.17,2026-04-15 20:10:00
+  ```
+
+  
 
 ## 运行脚本说明
 
