@@ -44,13 +44,15 @@ def fetch_historical_broad_market():
         'QQQ': 'QQQ',
         'SMH': 'SMH',
         'HYG': 'HYG',
-        'BTC': 'BTC-USD'
+        'BTC': 'BTC-USD',
+        'US10Y': '^TNX',  # <-- 新增：十年期美债收益率
+        'VIX': '^VIX'  # <-- 新增：恐慌指数
     }
 
     print("=== 🚀 开始拉取大类资产历史日线数据 ===")
 
     """获取的过去多久的数据："1d" (1天), "5d", "1mo", "3mo", "6mo", "1y" (1年), "5y", "10y", "ytd" (年初至今), "max" """
-    PERIOD = "1y"
+    PERIOD = "max"
     INTERVAL = "1d"
     df_merged = pd.DataFrame()
 
