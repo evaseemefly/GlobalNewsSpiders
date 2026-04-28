@@ -14,7 +14,8 @@ from curl_cffi import requests as cffi_requests
 # ==========================================
 # 🌐 V2Ray 代理配置 (Mac 环境)
 # ==========================================
-PROXY_URL = 'http://127.0.0.1:1087'  # 确保这是你 V2Ray 的 http 端口
+# PROXY_URL = 'http://127.0.0.1:1087'  # 确保这是你 V2Ray 的 http 端口
+PROXY_URL = 'http://127.0.0.1:7890'  # ubuntu
 
 os.environ['HTTP_PROXY'] = PROXY_URL
 os.environ['HTTPS_PROXY'] = PROXY_URL
@@ -24,7 +25,9 @@ if 'NO_PROXY' in os.environ:
 # ==========================================
 # 配置目录与资产
 # ==========================================
-DATA_DIR = Path("/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history")
+# DATA_DIR = Path("/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history")
+# home-workplace
+DATA_DIR = Path("/home/evaseemefly/01data/05-spiders") / 'broad_market_history'
 MASTER_FILE = DATA_DIR / "historical_broad_market_master.csv"
 
 TICKERS = {

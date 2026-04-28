@@ -13,6 +13,7 @@ from curl_cffi import requests as cffi_requests
 # 🌐 V2Ray 代理配置 (Mac 环境)
 # ==========================================
 PROXY_URL = 'http://127.0.0.1:1087'  # 确保你的 V2Ray 端口是 1087
+PROXY_URL = 'http://127.0.0.1:7890'     # ubuntu
 
 os.environ['HTTP_PROXY'] = PROXY_URL
 os.environ['HTTPS_PROXY'] = PROXY_URL
@@ -26,7 +27,10 @@ if 'NO_PROXY' in os.environ:
 def get_save_path() -> Path:
     sys_name = platform.system()
     if sys_name == "Darwin":
+        # workplace mac
         base_path = Path("/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders")
+        # home mac
+        base_path = Path("/Users/evaseemefly/03data/05-spiders")
     elif sys_name == "Linux":
         base_path = Path("/home/evaseemefly/01data/05-spiders")
     else:
