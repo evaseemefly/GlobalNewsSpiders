@@ -12,7 +12,7 @@ from curl_cffi import requests as cffi_requests
 # ==========================================
 # 🌐 V2Ray 代理配置 (Mac 环境)
 # ==========================================
-PROXY_URL = 'http://127.0.0.1:1087'  # 确保你的 V2Ray 端口是 1087
+# PROXY_URL = 'http://127.0.0.1:1087'  # 确保你的 V2Ray 端口是 1087
 PROXY_URL = 'http://127.0.0.1:7890'     # ubuntu
 
 os.environ['HTTP_PROXY'] = PROXY_URL
