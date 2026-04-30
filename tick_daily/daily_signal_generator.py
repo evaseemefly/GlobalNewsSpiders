@@ -92,7 +92,7 @@ def generate_daily_report():
 📢 操作建议：{action}
 🎯 推荐仓位：{int(position * 100)}%
 """
-    grok_file = OUTPUT_PATH / f"grok_trade_tick_{file_date}.txt"
+    grok_file = OUTPUT_PATH / f"grok_trade_tick_{file_date}_qqq.txt"
     grok_file.write_text(grok_text, encoding='utf-8')
     print(f"✅ Grok 风格报告已保存 → {grok_file.name}")
 
@@ -125,7 +125,7 @@ def generate_daily_report():
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    chart_path = FIGURES_PATH / f"hybrid_equity_{file_date}.png"
+    chart_path = FIGURES_PATH / f"hybrid_equity_{file_date}_qqq.png"
     plt.tight_layout()
     plt.savefig(chart_path, dpi=200, bbox_inches='tight')
     plt.close()

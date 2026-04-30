@@ -124,7 +124,7 @@ def generate_daily_report():
 
     # 保存 TXT 消息
     OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
-    txt_name = f"gemini_trade_tick_{file_date_str}.txt"
+    txt_name = f"gemini_trade_tick_{file_date_str}_qqq.txt"
     save_txt_path = OUTPUT_PATH / txt_name
     with open(save_txt_path, "w", encoding="utf-8") as f:
         f.write(report_content)
