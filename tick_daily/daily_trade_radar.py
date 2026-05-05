@@ -15,11 +15,25 @@ plt.rcParams['font.sans-serif'] = ['PingFang SC', 'Arial Unicode MS', 'Heiti TC'
 plt.rcParams['axes.unicode_minus'] = False
 
 # ==================== 1. 核心路径与最优参数配置 ====================
+# CSV_FILE_PATH = Path(
+#     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
+# # 文本消息存储路径
+# OUTPUT_PATH = Path(
+#     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
+
+# 单位-mac
+# CSV_FILE_PATH = Path(
+#     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
+# home-mac
 CSV_FILE_PATH = Path(
-    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
-# 文本消息存储路径
+    "/Users/evaseemefly/03data/05-spiders/broad_market_history/historical_broad_market_master.csv")
+# 单位-mac
+# OUTPUT_PATH = Path(
+#     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
+# home - mac
 OUTPUT_PATH = Path(
-    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
+    "/Users/evaseemefly/03data/05-spiders/output/trade_msg/")
+
 # 图片快照专用存储路径
 FIGURES_PATH = OUTPUT_PATH / "figures"
 
