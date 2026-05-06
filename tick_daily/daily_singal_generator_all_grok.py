@@ -3,24 +3,73 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from datetime import datetime
+from enum import Enum, auto  # todo: 26-05-06 新增：导入枚举相关库
 
-# ==================== 配置 ====================
-# 单位-mac
-CSV_FILE_PATH = Path(
-    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
-# home-mac
-# CSV_FILE_PATH = Path(
-#     "/Users/evaseemefly/03data/05-spiders/broad_market_history/historical_broad_market_master.csv")
-# 单位-mac
-OUTPUT_PATH = Path(
-    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
-# home - mac
-# OUTPUT_PATH = Path(
-#     "/Users/evaseemefly/03data/05-spiders/output/trade_msg/")
-OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
-FIGURES_PATH = OUTPUT_PATH / "figures"
-FIGURES_PATH.mkdir(parents=True, exist_ok=True)
+# ==================== 1. 定义环境枚举 ====================
+class EnvType(Enum):
+    HOME = auto()
+    WORK = auto()
+
+
+# ==================== 2. 配置获取函数 (无副作用) ====================
+def get_env_config(env: EnvType) -> dict:
+    """根据运行环境返回对应的路径配置字典"""
+    if env == EnvType.HOME:
+        base_path = Path("/Users/evaseemefly/03data/05-spiders")
+    elif env == EnvType.WORK:
+        base_path = Path("/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders")
+    else:
+        raise ValueError(f"未知的环境类型: {env}")
+
+    # 组装配置字典
+    config = {
+        'csv_file': base_path / "broad_market_history/historical_broad_market_master.csv",
+        'output_dir': base_path / "output/trade_msg",
+        'figures_dir': base_path / "output/trade_msg/figures"
+    }
+
+    # 在这里创建必要的目录是合理的，因为这是在初始化配置时必须保证的环境状态
+    config['output_dir'].mkdir(parents=True, exist_ok=True)
+    config['figures_dir'].mkdir(parents=True, exist_ok=True)
+
+    return config
+
+
+# ==================== 3. 顶层配置加载 ====================
+# 在这里手动切换环境
+CURRENT_ENV = EnvType.HOME
+
+# 获取配置字典
+CONFIG = get_env_config(CURRENT_ENV)
+
+# 显式地赋值给常量，方便后续直接使用
+CSV_FILE_PATH = CONFIG['csv_file']
+OUTPUT_PATH = CONFIG['output_dir']
+FIGURES_PATH = CONFIG['figures_dir']
+
+print(f"⚙️ 运行环境: [{CURRENT_ENV.name}]")
+print(f"📂 数据路径: {CSV_FILE_PATH}")
+
+# todo: 26-05-06 新增：动态初始化环境路径的方法
+def init_environment(env: EnvType):
+    """根据传入的枚举类型，动态加载并创建相关的全局路径配置"""
+    global CSV_FILE_PATH, OUTPUT_PATH, FIGURES_PATH
+
+    root_path = ENV_CONFIG[env]
+
+    CSV_FILE_PATH = root_path / "broad_market_history/historical_broad_market_master.csv"
+    OUTPUT_PATH = root_path / "output/trade_msg"
+
+    # 确保输出目录存在
+    OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+    FIGURES_PATH = OUTPUT_PATH / "figures"
+    FIGURES_PATH.mkdir(parents=True, exist_ok=True)
+
+    print(f"⚙️ 当前手动配置运行环境: [{env.name}]")
+    print(f"📂 数据源读取路径: {CSV_FILE_PATH}")
+    print(f"💾 报告输出主目录: {OUTPUT_PATH}\n")
+
 
 # todo: 26-05-06 整合配置：将 QQQ 和 VOO 的参数合并为字典格式以便循环调用
 ASSET_CONFIG = {
@@ -128,16 +177,10 @@ def plot_equity_and_levels(df: pd.DataFrame, asset: str, p: dict, support: float
     ax2.axhline(buy2_price, color='brown', linestyle=':', linewidth=2, label=f'Buy 2 (-11%: {buy2_price:.2f})')
 
     # 左下角增加 RSI 买3 文本提示框
-    # ax2.text(0.02, 0.05, "⚠️ 第3次加仓点位: 极端恐慌 (RSI < 30) 时触发",
-    #          transform=ax2.transAxes, color='red', fontsize=11, fontweight='bold',
-    #          bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray'))
-    # 修改后：移除 Emoji 避免 Matplotlib 报错
     ax2.text(0.02, 0.05, "【注意】第3次加仓点位: 极端恐慌 (RSI < 30) 时触发",
              transform=ax2.transAxes, color='red', fontsize=11, fontweight='bold',
              bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray'))
 
-    # ax2.set_title(f'📈 {asset} 近期箱体空间与加仓位置可视化', fontsize=14)
-    # 修改后：移除 Emoji
     ax2.set_title(f'{asset} 近期箱体空间与加仓位置可视化', fontsize=14)
     ax2.set_ylabel('Price')
     ax2.legend(loc='lower left', fontsize=9, ncol=2)
@@ -153,6 +196,11 @@ def plot_equity_and_levels(df: pd.DataFrame, asset: str, p: dict, support: float
 
 def generate_daily_report():
     print("=== 🚀 终极量化每日信号生成器（多资产合并版）===")
+
+    if not CSV_FILE_PATH or not CSV_FILE_PATH.exists():
+        print(f"❌ 找不到主数据文件: {CSV_FILE_PATH}")
+        print("请确认环境配置枚举是否正确，且数据文件已同步。")
+        return
 
     # 读取并处理全量公共数据
     master_df = pd.read_csv(CSV_FILE_PATH)
@@ -198,7 +246,6 @@ def generate_daily_report():
         recent = df.tail(60)
         support = recent[f'{asset}_close'].min()
         resistance = recent[f'{asset}_close'].max()
-        atr = (recent[f'{asset}_high'] - recent[f'{asset}_low']).mean()
         mid_price = (support + resistance) / 2
 
         # 执行建议（仅在允许满仓时给出）
@@ -239,4 +286,11 @@ def generate_daily_report():
 
 
 if __name__ == "__main__":
+    # todo: 26-05-06 手动环境切换区域！
+    # 如果在家中运行，请设置为 EnvType.HOME；在单位运行请设置为 EnvType.WORK。
+    CURRENT_ENV = EnvType.HOME
+
+    # 在主程序运行前，动态挂载所有路径配置
+    init_environment(CURRENT_ENV)
+
     generate_daily_report()
