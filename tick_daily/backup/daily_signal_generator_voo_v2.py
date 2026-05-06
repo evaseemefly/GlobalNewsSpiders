@@ -6,21 +6,20 @@ from datetime import datetime
 
 # ==================== 配置 ====================
 # home mac
-CSV_FILE_PATH = Path(
-    "/Users/evaseemefly/03data/05-spiders/broad_market_history/historical_broad_market_master.csv")
-# workplace mac
 # CSV_FILE_PATH = Path(
-#     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
+#     "/Users/evaseemefly/03data/05-spiders/broad_market_history/historical_broad_market_master.csv")
+# workplace mac
+CSV_FILE_PATH = Path(
+    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
 
 # home - mac
-OUTPUT_PATH = Path(
-    "/Users/evaseemefly/03data/05-spiders/output//trade_msg")
-# workplace mac
 # OUTPUT_PATH = Path(
-#     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
+#     "/Users/evaseemefly/03data/05-spiders/output//trade_msg")
+# workplace mac
+OUTPUT_PATH = Path(
+    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
 
 OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
-
 
 FIGURES_PATH = OUTPUT_PATH / "figures"
 FIGURES_PATH.mkdir(parents=True, exist_ok=True)
@@ -138,11 +137,12 @@ def generate_daily_report():
         df['hyg_divergence'] = (df['HYG_close'] < df['HYG_MA60']).rolling(3).sum() == 3
     df['vix_risk'] = (df['VIX_close'] > p['vix_th']) | (df['VIX_close'] > df['VIX_MA60'] * 1.8)
     df['risk_off'] = df['us10y_rising'] | df['hyg_divergence'] | df['vix_risk']
-    df['dip_buy'] = (df['RSI_14'] < p['rsi_th']) & (df['VOO_close'] > df['VOO_open']) & (df['VIX_close'] < df['VIX_close'].shift(1))
+    df['dip_buy'] = (df['RSI_14'] < p['rsi_th']) & (df['VOO_close'] > df['VOO_open']) & (
+                df['VIX_close'] < df['VIX_close'].shift(1))
 
     df['position'] = np.where(df['dip_buy'], 1.0,
-                    np.where(df['risk_off'], p['risk_pos'],
-                    np.where(df['base_trend'], 1.0, p['risk_pos'])))
+                              np.where(df['risk_off'], p['risk_pos'],
+                                       np.where(df['base_trend'], 1.0, p['risk_pos'])))
     df['position'] = df['position'].shift(1).fillna(p['risk_pos'])
 
     baseline = (1 + df['VOO_close'].pct_change().fillna(0)).cumprod()

@@ -6,17 +6,17 @@ from datetime import datetime
 
 # ==================== 配置 ====================
 # 单位-mac
-# CSV_FILE_PATH = Path(
-#     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
-# home-mac
 CSV_FILE_PATH = Path(
-    "/Users/evaseemefly/03data/05-spiders/broad_market_history/historical_broad_market_master.csv")
+    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
+# home-mac
+# CSV_FILE_PATH = Path(
+#     "/Users/evaseemefly/03data/05-spiders/broad_market_history/historical_broad_market_master.csv")
 # 单位-mac
-# OUTPUT_PATH = Path(
-#     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
-# home - mac
 OUTPUT_PATH = Path(
-    "/Users/evaseemefly/03data/05-spiders/output/trade_msg/")
+    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
+# home - mac
+# OUTPUT_PATH = Path(
+#     "/Users/evaseemefly/03data/05-spiders/output/trade_msg/")
 OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
 FIGURES_PATH = OUTPUT_PATH / "figures"

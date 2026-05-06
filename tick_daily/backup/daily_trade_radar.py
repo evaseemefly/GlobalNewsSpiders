@@ -22,17 +22,17 @@ plt.rcParams['axes.unicode_minus'] = False
 #     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
 
 # 单位-mac
-# CSV_FILE_PATH = Path(
-#     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
-# home-mac
 CSV_FILE_PATH = Path(
-    "/Users/evaseemefly/03data/05-spiders/broad_market_history/historical_broad_market_master.csv")
+    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
+# home-mac
+# CSV_FILE_PATH = Path(
+#     "/Users/evaseemefly/03data/05-spiders/broad_market_history/historical_broad_market_master.csv")
 # 单位-mac
-# OUTPUT_PATH = Path(
-#     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
-# home - mac
 OUTPUT_PATH = Path(
-    "/Users/evaseemefly/03data/05-spiders/output/trade_msg/")
+    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
+# home - mac
+# OUTPUT_PATH = Path(
+#     "/Users/evaseemefly/03data/05-spiders/output/trade_msg/")
 
 # 图片快照专用存储路径
 FIGURES_PATH = OUTPUT_PATH / "figures"

@@ -1,0 +1,242 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
+from datetime import datetime
+
+# ==================== 配置 ====================
+# 单位-mac
+CSV_FILE_PATH = Path(
+    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv")
+# home-mac
+# CSV_FILE_PATH = Path(
+#     "/Users/evaseemefly/03data/05-spiders/broad_market_history/historical_broad_market_master.csv")
+# 单位-mac
+OUTPUT_PATH = Path(
+    "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/output/trade_msg")
+# home - mac
+# OUTPUT_PATH = Path(
+#     "/Users/evaseemefly/03data/05-spiders/output/trade_msg/")
+OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+
+FIGURES_PATH = OUTPUT_PATH / "figures"
+FIGURES_PATH.mkdir(parents=True, exist_ok=True)
+
+# todo: 26-05-06 整合配置：将 QQQ 和 VOO 的参数合并为字典格式以便循环调用
+ASSET_CONFIG = {
+    'QQQ': {
+        'ma_len': 200,
+        'us10y_th': 0.15,
+        'vix_th': 45,
+        'rsi_th': 30,
+        'risk_pos': 0.3
+    },
+    'VOO': {
+        'ma_len': 100,
+        'us10y_th': 0.15,
+        'vix_th': 45,
+        'rsi_th': 30,
+        'risk_pos': 0.3
+    }
+}
+
+plt.rcParams['font.sans-serif'] = ['PingFang SC', 'Arial Unicode MS', 'Heiti TC', 'STHeiti']
+plt.rcParams['axes.unicode_minus'] = False
+
+
+def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+# todo: 26-05-06 新增：提取复用逻辑为生成信号特征的独立方法
+def process_asset_signals(df: pd.DataFrame, asset: str, p: dict) -> pd.DataFrame:
+    """为特定标的计算指标和生成量化交易历史信号"""
+    df = df.copy()
+
+    # 指标计算
+    df[f'{asset}_MA'] = df[f'{asset}_close'].rolling(p['ma_len'], min_periods=1).mean()
+    df['US10Y_diff_20'] = df['US10Y_close'].diff(20)
+    df['HYG_MA60'] = df['HYG_close'].rolling(60, min_periods=1).mean()
+    df['VIX_MA60'] = df['VIX_close'].rolling(60, min_periods=1).mean()
+    df[f'RSI_14_{asset}'] = calculate_rsi(df[f'{asset}_close'])
+
+    # 历史向量化信号计算 (用于绘制净值曲线)
+    df['base_trend'] = df[f'{asset}_close'] > df[f'{asset}_MA']
+    df['us10y_rising'] = df['US10Y_diff_20'] > p['us10y_th']
+    df['hyg_divergence'] = False
+    if len(df) >= 3:
+        df['hyg_divergence'] = (df['HYG_close'] < df['HYG_MA60']).rolling(3).sum() == 3
+    df['vix_risk'] = (df['VIX_close'] > p['vix_th']) | (df['VIX_close'] > df['VIX_MA60'] * 1.8)
+    df['risk_off'] = df['us10y_rising'] | df['hyg_divergence'] | df['vix_risk']
+    df['dip_buy'] = (df[f'RSI_14_{asset}'] < p['rsi_th']) & (df[f'{asset}_close'] > df[f'{asset}_open']) & (
+            df['VIX_close'] < df['VIX_close'].shift(1))
+
+    # 历史仓位计算
+    df['position'] = np.where(df['dip_buy'], 1.0,
+                              np.where(df['risk_off'], p['risk_pos'],
+                                       np.where(df['base_trend'], 1.0, p['risk_pos'])))
+    df['position'] = df['position'].shift(1).fillna(p['risk_pos'])
+
+    return df
+
+
+# todo: 26-05-06 新增：提取复用的图表生成逻辑，并在下方增加箱体与加仓买点可视化
+def plot_equity_and_levels(df: pd.DataFrame, asset: str, p: dict, support: float, resistance: float, mid_price: float,
+                           date_str: str, file_date: str) -> Path:
+    """生成包含策略净值及近期箱体/买入计划的综合图表"""
+    baseline = (1 + df[f'{asset}_close'].pct_change().fillna(0)).cumprod()
+    strategy = (1 + df['position'] * df[f'{asset}_close'].pct_change().fillna(0)).cumprod()
+
+    # 创建上下两行子图 (高度比 2:1.5)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 12), gridspec_kw={'height_ratios': [2, 1.5]}, sharex=False)
+
+    # --- 上图：净值曲线 ---
+    ax1.plot(baseline.index, baseline, label=f'Baseline (死拿{asset})', color='gray', alpha=0.7, linewidth=1.5)
+    ax1.plot(strategy.index, strategy, label=f'Hybrid Strategy ({asset})', color='#e74c3c', linewidth=2.5)
+    ax1.set_title(f'{asset} Hybrid 策略净值曲线及执行计划（截至 {date_str}）', fontsize=16, fontweight='bold')
+    ax1.set_ylabel('净值 (初始 = 1)')
+    ax1.legend(loc='upper left')
+    ax1.grid(True, alpha=0.3)
+
+    # --- 下图：近期价格、箱体及三次加仓计划标记 ---
+    # 取最近约半年(120个交易日)展示清晰细节
+    recent_df = df.tail(120)
+    ax2.plot(recent_df.index, recent_df[f'{asset}_close'], label=f'{asset} Close Price', color='#2980b9', linewidth=2)
+    ax2.plot(recent_df.index, recent_df[f'{asset}_MA'], label=f'MA{p["ma_len"]}', color='#f39c12', linestyle='-',
+             linewidth=1.5)
+
+    # 用阴影标记近 60 天的箱体计算范围
+    box_start = df.tail(60).index[0]
+    box_end = df.tail(60).index[-1]
+    ax2.axvspan(box_start, box_end, color='lightgray', alpha=0.2, label='Box Horizon (60d)')
+
+    # 标记关键位置
+    ax2.axhline(resistance, color='red', linestyle='--', alpha=0.6, label=f'Resistance ({resistance:.2f})')
+    ax2.axhline(support, color='green', linestyle='--', alpha=0.6, label=f'Support / Buy 2 ({support:.2f})')
+    ax2.axhline(mid_price, color='blue', linestyle='-.', alpha=0.8, label=f'Initial Buy (Mid: {mid_price:.2f})')
+
+    # 标记按比例回撤的买入点位
+    buy1_price = resistance * 0.94  # -6%
+    buy2_price = resistance * 0.89  # -11%
+    ax2.axhline(buy1_price, color='purple', linestyle=':', linewidth=2, label=f'Buy 1 (-6%: {buy1_price:.2f})')
+    ax2.axhline(buy2_price, color='brown', linestyle=':', linewidth=2, label=f'Buy 2 (-11%: {buy2_price:.2f})')
+
+    # 左下角增加 RSI 买3 文本提示框
+    # ax2.text(0.02, 0.05, "⚠️ 第3次加仓点位: 极端恐慌 (RSI < 30) 时触发",
+    #          transform=ax2.transAxes, color='red', fontsize=11, fontweight='bold',
+    #          bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray'))
+    # 修改后：移除 Emoji 避免 Matplotlib 报错
+    ax2.text(0.02, 0.05, "【注意】第3次加仓点位: 极端恐慌 (RSI < 30) 时触发",
+             transform=ax2.transAxes, color='red', fontsize=11, fontweight='bold',
+             bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray'))
+
+    # ax2.set_title(f'📈 {asset} 近期箱体空间与加仓位置可视化', fontsize=14)
+    # 修改后：移除 Emoji
+    ax2.set_title(f'{asset} 近期箱体空间与加仓位置可视化', fontsize=14)
+    ax2.set_ylabel('Price')
+    ax2.legend(loc='lower left', fontsize=9, ncol=2)
+    ax2.grid(True, alpha=0.3)
+
+    chart_path = FIGURES_PATH / f"hybrid_equity_{file_date}_{asset.lower()}.png"
+    plt.tight_layout()
+    plt.savefig(chart_path, dpi=200, bbox_inches='tight')
+    plt.close()
+
+    return chart_path
+
+
+def generate_daily_report():
+    print("=== 🚀 终极量化每日信号生成器（多资产合并版）===")
+
+    # 读取并处理全量公共数据
+    master_df = pd.read_csv(CSV_FILE_PATH)
+    master_df['trade_date_utc'] = pd.to_datetime(master_df['trade_date_utc'])
+    master_df = master_df.set_index('trade_date_utc').sort_index().ffill()
+
+    # todo: 26-05-06 循环处理所有在配置中的标的资产
+    for asset, p in ASSET_CONFIG.items():
+        print(f"\n⏳ 正在生成 {asset} 的信号及报告...")
+
+        # 获取包含指标的 DataFrame
+        df = process_asset_signals(master_df, asset, p)
+
+        today = df.iloc[-1]
+        yesterday = df.iloc[-2]
+        date_str = today.name.strftime('%Y-%m-%d')
+        file_date = date_str.replace('-', '_')
+
+        # ==================== 核心单日判定 ====================
+        base_trend = today[f'{asset}_close'] > today[f'{asset}_MA']
+        us10y_rising = today['US10Y_diff_20'] > p['us10y_th']
+        hyg_divergence = (len(df) >= 3 and (
+                df['HYG_close'].iloc[-3:] < df['HYG_MA60'].iloc[-3:]).sum() == 3) and base_trend
+        vix_risk = (today['VIX_close'] > p['vix_th']) | (today['VIX_close'] > today['VIX_MA60'] * 1.8)
+        risk_off = us10y_rising | hyg_divergence | vix_risk
+        dip_buy = (today[f'RSI_14_{asset}'] < p['rsi_th']) and (today[f'{asset}_close'] > today[f'{asset}_open']) and (
+                today['VIX_close'] < yesterday['VIX_close'])
+
+        if dip_buy:
+            position = 1.0
+            action = "🟢 左侧抄底：满仓加仓"
+        elif risk_off:
+            position = p['risk_pos']
+            action = f"🔴 风险-Off：减仓至 {int(p['risk_pos'] * 100)}% 防守"
+        elif base_trend:
+            position = 1.0
+            action = "🟢 多头趋势：维持 100% 满仓"
+        else:
+            position = p['risk_pos']
+            action = f"⚪ 防御状态：保持 {int(p['risk_pos'] * 100)}% 底仓"
+
+        # ==================== 箱体区间 + 执行建议 ====================
+        recent = df.tail(60)
+        support = recent[f'{asset}_close'].min()
+        resistance = recent[f'{asset}_close'].max()
+        atr = (recent[f'{asset}_high'] - recent[f'{asset}_low']).mean()
+        mid_price = (support + resistance) / 2
+
+        # 执行建议（仅在允许满仓时给出）
+        if position == 1.0:
+            exec_suggestion = f"""
+📍 当前箱体区间: {support:.2f} — {resistance:.2f}（中轴 {mid_price:.2f}）
+💡 执行建议:
+   • 初始建仓: 当前价或 {mid_price:.2f} 附近（建议占总仓位 40%）
+   • 第1次加仓: 回落至 MA{p['ma_len']} 附近 或 -6%（+20%）
+   • 第2次加仓: 回落至箱体支撑 {support:.2f} 附近 或 -11%（+20%）
+   • 第3次加仓: 极端恐慌（RSI<30）（+20%）
+"""
+        else:
+            exec_suggestion = "\n📍 当前为风险-Off 状态，暂不建议新增仓位。"
+
+        # ==================== 写入文本报告 ====================
+        grok_text = f"""📅 【{date_str} {asset} 中长期量化信号】
+{'=' * 55}
+趋势框架：{'✅ 多头' if base_trend else '❌ 空头'} ({asset} vs MA{p['ma_len']})
+宏观利率：{'⚠️ 上升' if us10y_rising else '✅ 安全'} (20日变化 {today['US10Y_diff_20']:+.2f})
+信用背离：{'⚠️ 触发' if hyg_divergence else '✅ 正常'}
+恐慌指数：{'⚠️ 高位' if vix_risk else '✅ 低位'} (VIX={today['VIX_close']:.2f})
+抄底机会：{'🟢 触发' if dip_buy else '❌ 未触发'} (RSI={today[f'RSI_14_{asset}']:.1f})
+{'-' * 55}
+📢 操作建议：{action}
+🎯 推荐仓位：{int(position * 100)}%
+{exec_suggestion}
+"""
+        grok_file = OUTPUT_PATH / f"grok_trade_tick_{file_date}_{asset.lower()}.txt"
+        grok_file.write_text(grok_text, encoding='utf-8')
+        print(f"✅ {asset} 文本报告已保存 → {grok_file.name}")
+
+        # ==================== 生成最终图表 ====================
+        chart_path = plot_equity_and_levels(df, asset, p, support, resistance, mid_price, date_str, file_date)
+        print(f"✅ {asset} 净值及箱体路线图已保存 → {chart_path.name}")
+
+    print(f"\n🎉 今日所有资产报告生成完成！所有文件均保存在：{OUTPUT_PATH}")
+
+
+if __name__ == "__main__":
+    generate_daily_report()
