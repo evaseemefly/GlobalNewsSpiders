@@ -38,7 +38,7 @@ def get_env_config(env: EnvType) -> dict:
 
 # ==================== 3. 顶层配置加载 ====================
 # 在这里手动切换环境
-CURRENT_ENV = EnvType.HOME
+CURRENT_ENV = EnvType.WORK
 
 # 获取配置字典
 CONFIG = get_env_config(CURRENT_ENV)
@@ -52,23 +52,23 @@ print(f"⚙️ 运行环境: [{CURRENT_ENV.name}]")
 print(f"📂 数据路径: {CSV_FILE_PATH}")
 
 # todo: 26-05-06 新增：动态初始化环境路径的方法
-def init_environment(env: EnvType):
-    """根据传入的枚举类型，动态加载并创建相关的全局路径配置"""
-    global CSV_FILE_PATH, OUTPUT_PATH, FIGURES_PATH
-
-    root_path = ENV_CONFIG[env]
-
-    CSV_FILE_PATH = root_path / "broad_market_history/historical_broad_market_master.csv"
-    OUTPUT_PATH = root_path / "output/trade_msg"
-
-    # 确保输出目录存在
-    OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
-    FIGURES_PATH = OUTPUT_PATH / "figures"
-    FIGURES_PATH.mkdir(parents=True, exist_ok=True)
-
-    print(f"⚙️ 当前手动配置运行环境: [{env.name}]")
-    print(f"📂 数据源读取路径: {CSV_FILE_PATH}")
-    print(f"💾 报告输出主目录: {OUTPUT_PATH}\n")
+# def init_environment(env: EnvType):
+#     """根据传入的枚举类型，动态加载并创建相关的全局路径配置"""
+#     global CSV_FILE_PATH, OUTPUT_PATH, FIGURES_PATH
+#
+#     root_path = ENV_CONFIG[env]
+#
+#     CSV_FILE_PATH = root_path / "broad_market_history/historical_broad_market_master.csv"
+#     OUTPUT_PATH = root_path / "output/trade_msg"
+#
+#     # 确保输出目录存在
+#     OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+#     FIGURES_PATH = OUTPUT_PATH / "figures"
+#     FIGURES_PATH.mkdir(parents=True, exist_ok=True)
+#
+#     print(f"⚙️ 当前手动配置运行环境: [{env.name}]")
+#     print(f"📂 数据源读取路径: {CSV_FILE_PATH}")
+#     print(f"💾 报告输出主目录: {OUTPUT_PATH}\n")
 
 
 # todo: 26-05-06 整合配置：将 QQQ 和 VOO 的参数合并为字典格式以便循环调用
@@ -288,9 +288,9 @@ def generate_daily_report():
 if __name__ == "__main__":
     # todo: 26-05-06 手动环境切换区域！
     # 如果在家中运行，请设置为 EnvType.HOME；在单位运行请设置为 EnvType.WORK。
-    CURRENT_ENV = EnvType.HOME
+    # CURRENT_ENV = EnvType.HOME
 
     # 在主程序运行前，动态挂载所有路径配置
-    init_environment(CURRENT_ENV)
+    # init_environment(CURRENT_ENV)
 
     generate_daily_report()

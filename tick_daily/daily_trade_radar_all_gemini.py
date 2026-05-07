@@ -48,7 +48,7 @@ def get_env_config(env: EnvType) -> dict:
 
 # ==================== 3. 顶层配置加载 ====================
 # 在这里手动切换环境
-CURRENT_ENV = EnvType.HOME
+CURRENT_ENV = EnvType.WORK
 
 # 获取配置字典
 CONFIG = get_env_config(CURRENT_ENV)
@@ -286,10 +286,10 @@ def generate_daily_report():
 if __name__ == "__main__":
     # todo 26-05-06: 根据实际运行环境，在此处手动修改枚举即可！
     # 选项：EnvType.HOME 或 EnvType.WORK
-    CURRENT_ENV = EnvType.HOME
+    # CURRENT_ENV = EnvType.HOME
 
     # 动态初始化所有环境路径
-    init_environment(CURRENT_ENV)
+    # init_environment(CURRENT_ENV)
 
     # 执行主程序
     generate_daily_report()
