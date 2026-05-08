@@ -127,7 +127,7 @@ def fetch_daily_stock_data(tickers: list, start_date: str = "2020-01-01"):
 def main():
     print("=== 🚀 启动个股历史数据防封禁下载引擎 ===")
     # target_stocks = ['NVDA', 'TSLA']
-    target_stocks = ['META', 'MSFT']
+    target_stocks = ['META', 'MSFT', 'NVDA', 'TSLA', 'MU', 'ASML', 'AMZN']
     fetch_daily_stock_data(target_stocks, start_date="2023-01-01")
 
 
