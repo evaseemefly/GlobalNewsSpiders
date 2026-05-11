@@ -113,8 +113,10 @@ def create_chart_figure(ticker, df, days):
     return fig
 
 # ==================== 3. 报告合成逻辑 ====================
-def main():
-    target_stocks = ['META', 'MSFT', 'NVDA', 'TSLA', 'MU', 'ASML', 'AMZN']
+def main(target_stocks=None):
+    # 增加参数判断：如果外部没传，则使用默认股票池
+    if target_stocks is None:
+        target_stocks = ['META', 'MSFT', 'NVDA', 'TSLA', 'MU', 'ASML', 'AMZN']
     current_date = arrow.now().format('YYYY_MM_DD')
 
     report_name = f"Stock_MultiPeriod_Report_{current_date}.pdf"
