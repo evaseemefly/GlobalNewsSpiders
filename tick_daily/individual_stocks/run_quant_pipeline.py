@@ -22,6 +22,7 @@ def run_pipeline(is_need_download: bool = True):
     # 这里我们放入您之前提到的核心颠覆和高弹性标的
     # ---------------------------------------------------------
     GLOBAL_TARGET_STOCKS = ['META', 'MSFT', 'NVDA', 'TSLA', 'MU', 'ASML', 'AMZN']
+    # GLOBAL_TARGET_STOCKS = ['MAGS', 'SMH']
     GLOBAL_START_DATE = "2023-01-01"
 
     print(f"📌 当前设定的全局监控股票池: {GLOBAL_TARGET_STOCKS}\n")
