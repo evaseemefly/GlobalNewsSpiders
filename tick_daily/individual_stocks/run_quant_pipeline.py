@@ -57,4 +57,4 @@ def run_pipeline(is_need_download: bool = True):
 
 
 if __name__ == "__main__":
-    run_pipeline(False)
+    run_pipeline(True)
