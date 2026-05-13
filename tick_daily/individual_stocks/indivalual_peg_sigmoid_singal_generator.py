@@ -277,7 +277,7 @@ def plot_sigmoid_positions(stock_results, midpoint=62, k=0.12):
 # ==================== 7. 主程序入口 ====================
 if __name__ == "__main__":
     print("=== 🚀 专业级量化信号引擎启动 ===")
-    target_stocks = ['NVDA', 'TSLA', 'META', 'MSFT', 'AAPL']
+    target_stocks = ['META', 'MSFT', 'NVDA', 'TSLA', 'MU', 'ASML', 'AMZN', 'MAGS']
 
     # 用于收集画图所需数据的列表
     results_for_plot = []
