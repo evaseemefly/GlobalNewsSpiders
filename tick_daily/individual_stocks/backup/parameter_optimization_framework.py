@@ -159,6 +159,6 @@ def run_optimization(ticker):
 
 
 if __name__ == '__main__':
-    run_optimization("NVDA")   # 先测试 NVDA
-    # run_optimization("TSLA")
+    # run_optimization("NVDA")   # 先测试 NVDA
+    run_optimization("TSLA")
     # run_optimization("MU")

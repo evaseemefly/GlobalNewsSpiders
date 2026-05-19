@@ -99,6 +99,7 @@ class MultiStageStrategy(bt.Strategy):
                 self.order = self.buy(size=size)
                 self.stage = 3
 
+
 # ==================== 3. 主引擎与数据加载 ====================
 def run_optimization(ticker):
     print(f"🚀 开始对 {ticker} 进行多阶段加仓参数寻优...")
@@ -140,6 +141,10 @@ def run_optimization(ticker):
         drop2_pct=[0.10, 0.15, 0.20]
     )
 
+    # ==== 新增：添加分析器 ====
+    cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
+    # ==========================
+
     # ==================== 👇 新增：计算 Buy & Hold 基准收益 ====================
     # 为了公平起见，我们从 MA200 能够计算出来的那一天（第200天）开始算起
     start_price = df['close'].iloc[200]
@@ -164,11 +169,17 @@ def run_optimization(ticker):
         for strategy in run:
             params = strategy.params
             final_value = strategy.broker.get_value()
+
+            # ==== 新增：提取最大回撤 ====
+            max_drawdown = strategy.analyzers.drawdown.get_analysis()['max']['drawdown']
+            # ==============================
+
             results_list.append({
                 'drop1': f"{params.drop1_pct * 100:.0f}%",
                 'drop2': f"{params.drop2_pct * 100:.0f}%",
                 'final_value': round(final_value, 2),
-                'return_pct': round((final_value - 100000) / 100000 * 100, 2)
+                'return_pct': round((final_value - 100000) / 100000 * 100, 2),
+                'Max_Drawdown': f"{max_drawdown:.2f}%"  # 显示最大回撤
             })
 
     # 将结果转换为 DataFrame 并按收益率排序
@@ -184,5 +195,5 @@ def run_optimization(ticker):
 
 if __name__ == '__main__':
     # 你可以把这里的 NVDA 换成 TSLA 或 META 来测试不同股性的最优加仓间距
-    # run_optimization("NVDA")
-    run_optimization("TSLA")
+    run_optimization("NVDA")
+    # run_optimization("TSLA")
