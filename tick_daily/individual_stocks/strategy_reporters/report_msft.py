@@ -10,10 +10,12 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+
 # ==================== 1. 环境配置 ====================
 class EnvType(Enum):
     HOME = auto()
     WORK = auto()
+
 
 def get_env_config(env: EnvType) -> dict:
     if env == EnvType.HOME:
@@ -24,22 +26,28 @@ def get_env_config(env: EnvType) -> dict:
         raise ValueError(f"未知的环境类型: {env}")
     return {'ind_stock_dir': base_path / "individual_stocks"}
 
+
 CURRENT_ENV = EnvType.WORK
 CONFIG = get_env_config(CURRENT_ENV)
 
-# ==================== 2. 最优策略 (多阶段网格策略) ====================
+
+# ==================== 2. MSFT专属：闪击网格 + 移动追踪止盈策略 ====================
 class MultiStageStrategy(bt.Strategy):
     params = (
-        ('rsi_entry_th', 50),
-        ('rsi_exit_th', 70),
-        ('drop1_pct', 0.05),
-        ('drop2_pct', 0.08),
-        ('ma_period', 200),
+        ('rsi_entry_th', 45),
+        ('rsi_exit_th', 80),
+        ('drop1_pct', 0.03),
+        ('drop2_pct', 0.05),
+        ('ma_period', 150),
         ('initial_alloc', 0.30),
         ('add1_alloc', 0.30),
         ('add2_alloc', 0.40),
         ('update_ref_on_add', False),
-        ('profit_target_pct', 0.20),
+
+        # 🌟 移动追踪止盈核心参数
+        ('profit_target_pct', 0.10),  # 激活线：利润达到 10% 激活
+        ('trailing_drop_pct', 0.05),  # 回撤线：从最高点回落 5% 清仓
+
         ('verbose', True),
     )
 
@@ -51,6 +59,9 @@ class MultiStageStrategy(bt.Strategy):
         self.last_buy_price = 0.0
         self.stage = 0
 
+        # 🌟 记录买入后的最高价 (用于追踪止盈)
+        self.highest_price_since_buy = 0.0
+
         self.trades_history = []
         self.account_stats = {}
         self.closed_pnl = []
@@ -61,9 +72,11 @@ class MultiStageStrategy(bt.Strategy):
         dt = self.data.datetime.date(0)
         if order.status in [order.Completed]:
             if order.isbuy():
-                print(f"   ↳ ⚡ [历史回测成交] 🟢 买入 | 均价: ${order.executed.price:.2f} | 数量: {order.executed.size} 股")
+                print(
+                    f"   ↳ ⚡ [历史回测成交] 🟢 买入 | 均价: ${order.executed.price:.2f} | 数量: {order.executed.size} 股")
             elif order.issell():
-                print(f"   ↳ ⚡ [历史回测成交] 🔴 卖出 | 均价: ${order.executed.price:.2f} | 数量: {abs(order.executed.size)} 股")
+                print(
+                    f"   ↳ ⚡ [历史回测成交] 🔴 卖出 | 均价: ${order.executed.price:.2f} | 数量: {abs(order.executed.size)} 股")
             self.order = None
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
             self.order = None
@@ -82,23 +95,55 @@ class MultiStageStrategy(bt.Strategy):
 
         price = self.data.close[0]
 
+        # 🌟 动态更新最高价
         if self.stage > 0:
-            if (self.rsi[0] >= self.params.rsi_exit_th or
-                    (self.params.profit_target_pct > 0 and self.position and self.position.size != 0 and
-                     price >= self.position.price * (1 + self.params.profit_target_pct)) or
-                    price < self.ma200[0] * 0.85):
+            if price > self.highest_price_since_buy:
+                self.highest_price_since_buy = price
+
+        # ==================== 1. 离场逻辑 ====================
+        if self.stage > 0:
+            # 🔴 条件 A：RSI 极度超买 (全仓离场)
+            if self.rsi[0] >= self.params.rsi_exit_th:
                 size = self.position.size
                 self.trades_history.append(('SELL', dt, price, self.stage, size))
                 self.order = self.close()
                 self.stage = 0
+                self.highest_price_since_buy = 0.0
                 return
 
+            # 🔴 条件 B：硬止损跌破长线均线 (全仓割肉)
+            if price < self.ma200[0] * 0.85:
+                size = self.position.size
+                self.trades_history.append(('SELL', dt, price, self.stage, size))
+                self.order = self.close()
+                self.stage = 0
+                self.highest_price_since_buy = 0.0
+                return
+
+            # 🟡 条件 C：移动追踪止盈 (Trailing Stop)
+            if self.params.profit_target_pct > 0 and self.position:
+                avg_price = self.position.price
+                # 是否触及激活线
+                if self.highest_price_since_buy >= avg_price * (1 + self.params.profit_target_pct):
+                    # 计算防守底线
+                    trigger_price = self.highest_price_since_buy * (1 - self.params.trailing_drop_pct)
+                    if price <= trigger_price:
+                        size = self.position.size
+                        self.trades_history.append(('SELL', dt, price, self.stage, size))
+                        self.order = self.close()
+                        self.stage = 0
+                        self.highest_price_since_buy = 0.0
+                        return
+
+        # ==================== 2. 建仓 / 加仓逻辑 ====================
         if self.stage == 0:
             if self.rsi[0] <= self.params.rsi_entry_th and price > self.ma200[0]:
                 size = int(self.broker.get_value() * self.params.initial_alloc / price)
                 self.order = self.buy(size=size)
-                self.initial_buy_price = self.last_buy_price = price
+                self.initial_buy_price = price
+                self.last_buy_price = price
                 self.stage = 1
+                self.highest_price_since_buy = price
                 self.trades_history.append(('BUY', dt, price, self.stage, size))
 
         elif self.stage == 1:
@@ -121,9 +166,10 @@ class MultiStageStrategy(bt.Strategy):
                 self.stage = 3
                 self.trades_history.append(('BUY', dt, price, self.stage, size))
 
+
 # ==================== 3. 完美复刻专业报告图 (8轴联动) ====================
-def generate_strategy_report(ticker: str = "TSLA", config: dict = None):
-    print(f"🚀 开始生成 {ticker} 最优策略专业报告图 (含参数表及净值对比)...")
+def generate_strategy_report(ticker: str = "MSFT", config: dict = None):
+    print(f"🚀 开始生成 {ticker} 最优策略专业报告图 (移动追踪止盈版)...")
 
     file_path = CONFIG['ind_stock_dir'] / f"individual_stocks_master_{ticker}.csv"
     if not file_path.exists():
@@ -163,16 +209,17 @@ def generate_strategy_report(ticker: str = "TSLA", config: dict = None):
     if config:
         cerebro.addstrategy(
             MultiStageStrategy,
-            rsi_entry_th=config.get('rsi_entry_th', 50),
-            rsi_exit_th=config.get('rsi_exit_th', 70),
-            drop1_pct=config.get('drop1_pct', 0.05),
-            drop2_pct=config.get('drop2_pct', 0.08),
-            ma_period=config.get('ma_period', 200),
+            rsi_entry_th=config.get('rsi_entry_th', 45),
+            rsi_exit_th=config.get('rsi_exit_th', 80),
+            drop1_pct=config.get('drop1_pct', 0.03),
+            drop2_pct=config.get('drop2_pct', 0.05),
+            ma_period=config.get('ma_period', 150),
             initial_alloc=config.get('initial_alloc', 0.30),
             add1_alloc=config.get('add1_alloc', 0.30),
             add2_alloc=config.get('add2_alloc', 0.40),
             update_ref_on_add=config.get('update_ref_on_add', False),
-            profit_target_pct=config.get('profit_target_pct', 0.20),
+            profit_target_pct=config.get('profit_target_pct', 0.10),
+            trailing_drop_pct=config.get('trailing_drop_pct', 0.05),  # 🌟 注入追踪参数
             verbose=config.get('verbose', True)
         )
     else:
@@ -191,7 +238,6 @@ def generate_strategy_report(ticker: str = "TSLA", config: dict = None):
     plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'PingFang SC', 'SimHei', 'Microsoft YaHei']
     plt.rcParams['axes.unicode_minus'] = False
 
-    # 💡 升级为 8 面板
     fig, axs = plt.subplots(8, 1, figsize=(16, 24), sharex=True,
                             gridspec_kw={'height_ratios': [0.8, 1.5, 1.2, 1, 1, 4.5, 1.2, 1.2]})
     fig.subplots_adjust(hspace=0.1)
@@ -202,21 +248,24 @@ def generate_strategy_report(ticker: str = "TSLA", config: dict = None):
     plot_df = df[-200:].copy()
     dates = plot_df.index
 
-    # 提前提取资产数据
     vals = [strat.account_stats.get(d.date(), (np.nan, np.nan))[0] for d in dates]
     cash = [strat.account_stats.get(d.date(), (np.nan, np.nan))[1] for d in dates]
     s_vals = pd.Series(vals).ffill().bfill()
     s_cash = pd.Series(cash).ffill().bfill()
 
-    # 面板 0: 参数表 (网格版)
+    # 面板 0: 参数表 (网格版 - 🌟 追踪止盈UI更新)
     ax_table = axs[0]
     ax_table.axis('off')
     params = strat.params
     col_labels = ["模块 (Module)", "参数设定 1", "参数设定 2", "参数设定 3"]
     table_data = [
-        ["入场与风控", f"RSI 抄底阈值: < {params.rsi_entry_th}", f"长线均线过滤: 站上 MA{params.ma_period}", f"破位止损线: MA200 -15%"],
-        ["网格与资金", f"初始底仓: {params.initial_alloc * 100:.0f}%", f"一档加仓 (跌{params.drop1_pct * 100:.0f}%): {params.add1_alloc * 100:.0f}%", f"极限满仓 (跌{params.drop2_pct * 100:.0f}%): {params.add2_alloc * 100:.0f}%"],
-        ["离场与平仓", f"RSI 超买止盈: >= {params.rsi_exit_th}", f"目标利润止盈: {params.profit_target_pct * 100:.0f}%", f"基准价格更新: {params.update_ref_on_add}"]
+        ["入场与风控", f"RSI 抄底阈值: < {params.rsi_entry_th}", f"长线均线过滤: 站上 MA{params.ma_period}",
+         f"破位止损线: MA均线 -15%"],
+        ["网格与资金", f"初始底仓: {params.initial_alloc * 100:.0f}%",
+         f"一档加仓 (跌{params.drop1_pct * 100:.0f}%): {params.add1_alloc * 100:.0f}%",
+         f"极限满仓 (跌{params.drop2_pct * 100:.0f}%): {params.add2_alloc * 100:.0f}%"],
+        ["移动追踪止盈", f"追踪激活线 (利润): >= {params.profit_target_pct * 100:.0f}%",
+         f"回撤清仓线: 最高点回落 {params.trailing_drop_pct * 100:.0f}%", f"RSI超买强平: >= {params.rsi_exit_th}"]
     ]
     table = ax_table.table(cellText=table_data, colLabels=col_labels, loc='center', cellLoc='center')
     table.auto_set_font_size(False)
@@ -231,7 +280,7 @@ def generate_strategy_report(ticker: str = "TSLA", config: dict = None):
             cell.set_text_props(weight='bold', color='#2c3e50')
             cell.set_facecolor('#ecf0f1')
 
-    # 💡 新增 面板 1: 净值曲线对比 (归一化)
+    # 面板 1: 净值曲线对比
     ax_netval = axs[1]
     strat_net_value = s_vals / s_vals.iloc[0]
     baseline_net_value = plot_df['close'] / plot_df['close'].iloc[0]
@@ -285,7 +334,8 @@ def generate_strategy_report(ticker: str = "TSLA", config: dict = None):
     ax_price.plot(dates, plot_df['MA100'], label='MA100', color='#27ae60', linewidth=1.5, alpha=0.8)
     ax_price.plot(dates, plot_df['MA200'], label='MA200', color='#c0392b', linewidth=2)
     ax_price.plot(dates, plot_df['MA250'], label='MA250', color='#2c3e50', linewidth=2, linestyle='-.')
-    ax_price.fill_between(dates, plot_df['BB_Lower'], plot_df['BB_Upper'], color='gray', alpha=0.15, label='Bollinger Bands')
+    ax_price.fill_between(dates, plot_df['BB_Lower'], plot_df['BB_Upper'], color='gray', alpha=0.15,
+                          label='Bollinger Bands')
     ax_price.set_ylabel('Price', fontsize=10)
     ax_price.legend(loc='upper left', ncol=3, fontsize=9)
     ax_price.grid(True, linestyle=':', alpha=0.6)
@@ -293,11 +343,17 @@ def generate_strategy_report(ticker: str = "TSLA", config: dict = None):
     for action, date, p_trade, stage, size in strat.trades_history:
         if pd.Timestamp(date) in dates:
             if action == 'BUY':
-                ax_price.scatter(date, p_trade, color='red', marker='o', s=120, zorder=8, edgecolors='white', linewidth=1.5)
-                ax_price.annotate(f'+ {size}', xy=(date, p_trade), xytext=(0, 12), textcoords='offset points', ha='center', color='red', fontsize=10, fontweight='bold', zorder=10, bbox=dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.7))
+                ax_price.scatter(date, p_trade, color='red', marker='o', s=120, zorder=8, edgecolors='white',
+                                 linewidth=1.5)
+                ax_price.annotate(f'+ {size}', xy=(date, p_trade), xytext=(0, 12), textcoords='offset points',
+                                  ha='center', color='red', fontsize=10, fontweight='bold', zorder=10,
+                                  bbox=dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.7))
             else:
-                ax_price.scatter(date, p_trade, color='green', marker='o', s=120, zorder=8, edgecolors='white', linewidth=1.5)
-                ax_price.annotate(f'- {size}', xy=(date, p_trade), xytext=(0, -22), textcoords='offset points', ha='center', color='green', fontsize=10, fontweight='bold', zorder=10, bbox=dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.7))
+                ax_price.scatter(date, p_trade, color='green', marker='o', s=120, zorder=8, edgecolors='white',
+                                 linewidth=1.5)
+                ax_price.annotate(f'- {size}', xy=(date, p_trade), xytext=(0, -22), textcoords='offset points',
+                                  ha='center', color='green', fontsize=10, fontweight='bold', zorder=10,
+                                  bbox=dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.7))
 
     # 面板 6: MACD
     ax_macd = axs[6]
@@ -336,6 +392,8 @@ def generate_strategy_report(ticker: str = "TSLA", config: dict = None):
     live_state = config.get('live_state') if config else None
     print_next_day_signals(strat, ticker, last_date, last_price, live_state=live_state)
 
+
+# 🌟 专门为移动止盈升级的实盘指令打印模块
 def print_next_day_signals(strat, ticker, current_date, current_price, live_state=None):
     print("\n" + "🔮" * 30)
     print(f"🎯 【明日实盘交易指令预测】 {ticker} | 基准日: {current_date}")
@@ -351,12 +409,18 @@ def print_next_day_signals(strat, ticker, current_date, current_price, live_stat
         last_buy_price = strat.last_buy_price
         cost_price = strat.position.price if strat.position else strat.last_buy_price
 
-    ma200 = strat.ma200[0]
+    ma_period_val = strat.params.ma_period
+    ma_val = strat.ma200[0] if ma_period_val == 200 else (
+        strat.data.close.get(size=ma_period_val)[0] if len(strat) >= ma_period_val else current_price)
+    # 为了兼容代码，取巧获取当前使用的长线MA
+    ma_line_val = sum(strat.data.close.get(size=ma_period_val)) / ma_period_val if len(
+        strat) >= ma_period_val else current_price
+
     rsi = strat.rsi[0]
     params = strat.params
 
     print(f"📊 当前盘面状态 (收盘):")
-    print(f"   收盘价: ${current_price:.2f} | MA200: ${ma200:.2f} | RSI: {rsi:.2f}")
+    print(f"   收盘价: ${current_price:.2f} | MA{params.ma_period}: ${ma_line_val:.2f} | RSI: {rsi:.2f}")
     print(f"   当前持仓阶段: Stage {stage} (0=空仓, 1=底仓, 2/3=加仓)")
 
     if stage > 0:
@@ -365,39 +429,57 @@ def print_next_day_signals(strat, ticker, current_date, current_price, live_stat
     print("\n📋 明日操作建议 (Action Plan):")
 
     if stage > 0:
-        exit_price_sl = ma200 * 0.85
-        print(f"   🔴 【减仓/离场监控】")
-        print(f"      - RSI 超买止盈线: 盘中监控 RSI 是否冲破 {params.rsi_exit_th} (触发则 100% 清仓)")
-        if params.profit_target_pct > 0:
-            exit_price_tp = cost_price * (1 + params.profit_target_pct)
-            print(f"      - 目标利润止盈价: >= ${exit_price_tp:.2f} (触发则 100% 清仓落袋)")
-        print(f"      - 破位止损底线: < ${exit_price_sl:.2f} (触发则 100% 清仓离场)")
+        exit_price_sl = ma_line_val * 0.85
+        activation_price = cost_price * (1 + params.profit_target_pct)
+
+        print(f"   🔴 【移动追踪止盈 / 离场监控】")
+        print(f"      - RSI 超买止盈线: 盘中监控 RSI 是否冲破 {params.rsi_exit_th} (触发则无条件全仓清仓)")
+        print(f"      - 追踪激活价: >= ${activation_price:.2f} (若盘中达到此价，开启追踪警报)")
+        print(
+            f"      - 追踪清仓纪律: 激活后，若价格从期间最高点回撤 {params.trailing_drop_pct * 100:.0f}%，则立刻全仓落袋！")
+        print(f"      - 破位止损底线: < ${exit_price_sl:.2f} (触发则 100% 割肉离场)")
         print()
 
     if stage == 0:
-        if rsi <= params.rsi_entry_th and current_price > ma200:
+        if rsi <= params.rsi_entry_th and current_price > ma_line_val:
             print(f"   🟢 【强烈买入信号】(已满足底仓条件)")
             print(f"      - 动作: 建议明日开盘/盘中直接买入！")
             print(f"      - 建议仓位: 动用当前可用总资金的 {params.initial_alloc * 100:.0f}%")
         else:
             print(f"   ⚪ 【观望等待】")
             print(f"      - 尚未触发底仓买点。")
-            print(f"      - 触发条件: RSI 需回落至 <= {params.rsi_entry_th}，且价格维持在 MA200 (${ma200:.2f}) 之上。")
+            print(
+                f"      - 触发条件: RSI 需回落至 <= {params.rsi_entry_th}，且价格维持在 MA{params.ma_period} (${ma_line_val:.2f}) 之上。")
     elif stage == 1:
         target_drop_price = last_buy_price * (1 - params.drop1_pct)
-        print(f"   🟢 【左侧网格加仓监控 (第一次加仓)】")
+        print(f"   🟢 【极速网格加仓监控 (第一次加仓)】")
         print(f"      - 触发条件: 价格向下击穿 <= ${target_drop_price:.2f}")
         print(f"      - 建议仓位: 动用总资金的 {params.add1_alloc * 100:.0f}% 补仓")
     elif stage == 2:
         target_drop_price = last_buy_price * (1 - params.drop2_pct)
-        print(f"   🟢 【左侧极限加仓监控 (第二次满仓)】")
+        print(f"   🟢 【极速网格加仓监控 (第二次满仓)】")
         print(f"      - 触发条件: 价格向下击穿 <= ${target_drop_price:.2f}")
         print(f"      - 建议仓位: 动用总资金的 {params.add2_alloc * 100:.0f}% 补仓")
     elif stage == 3:
         print(f"   🛡️ 【仓位已满】")
-        print(f"      - 动作: 子弹已打光，严格执行上方的【🔴 减仓/离场监控】纪律，等待反弹止盈或认错止损。")
+        print(f"      - 动作: 子弹已打光，严格盯紧上方的【🔴 移动追踪止盈 / 离场监控】纪律，准备随时吃大波段或认错止损。")
 
     print("🔮" * 30 + "\n")
 
+
 if __name__ == '__main__':
-    generate_strategy_report("TSLA")
+    msft_config = {
+        'rsi_entry_th': 45,
+        'rsi_exit_th': 80,
+        'drop1_pct': 0.03,
+        'drop2_pct': 0.05,
+        'ma_period': 150,
+        'initial_alloc': 0.30,
+        'add1_alloc': 0.30,
+        'add2_alloc': 0.40,
+        'update_ref_on_add': False,
+        'profit_target_pct': 0.10,
+        'trailing_drop_pct': 0.05,
+        'verbose': True
+    }
+    generate_strategy_report("MSFT", config=msft_config)

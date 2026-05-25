@@ -4,51 +4,79 @@ from pathlib import Path
 
 # ==================== 1. 全局资产配置字典 ====================
 ASSET_CONFIG = {
-    # 'TSLA': {
-    #     'strategy': 'grid',
-    #     # --- TSLA 网格最优参数 ---
-    #     'rsi_entry_th': 50,
-    #     'rsi_exit_th': 70,
-    #     'drop1_pct': 0.05,
-    #     'drop2_pct': 0.08,
-    #     'ma_period': 200,
-    #     'initial_alloc': 0.30,
-    #     'add1_alloc': 0.30,
-    #     'add2_alloc': 0.40,
-    #     'update_ref_on_add': False,
-    #     'profit_target_pct': 0.20,
-    #     'verbose': True,
-    #     # --- 实盘账户状态注入 ---
-    #     'live_state': {
-    #         'stage': 2,           # 真实持仓阶段
-    #         'cost_price': 404.0,  # 真实成本价
-    #         'shares': 12          # 真实持股数
-    #     }
-    # },
-    'MU': {
-        'strategy': 'trend',
-        # --- MU 海龟非对称趋势最优参数 ---
-        'entry_period': 30,       # 敏锐进场：突破过去30日最高点买入
-        'exit_period': 40,        # 宽容防守：跌破过去40日最低点卖出
-        'alloc_pct': 0.95,        # 动用95%仓位防滑点
+    'TSLA': {
+        'strategy': 'grid',
+        # --- TSLA 网格最优参数 ---
+        'rsi_entry_th': 50,
+        'rsi_exit_th': 70,
+        'drop1_pct': 0.05,
+        'drop2_pct': 0.08,
+        'ma_period': 200,
+        'initial_alloc': 0.30,
+        'add1_alloc': 0.30,
+        'add2_alloc': 0.40,
+        'update_ref_on_add': False,
+        'profit_target_pct': 0.20,
         'verbose': True,
         # --- 实盘账户状态注入 ---
         'live_state': {
-            'stage': 0,           # 0 代表当前实盘空仓，等待发车
-            'cost_price': 0.0,    # 空仓状态下成本价设为 0
-            'shares': 0           # 空仓状态下股数设为 0
+            'stage': 2,  # 真实持仓阶段
+            'cost_price': 404.0,  # 真实成本价
+            'shares': 12  # 真实持股数
+        }
+    },
+    'MU': {
+        'strategy': 'trend',
+        # --- MU 海龟非对称趋势最优参数 ---
+        'entry_period': 30,  # 敏锐进场：突破过去30日最高点买入
+        'exit_period': 40,  # 宽容防守：跌破过去40日最低点卖出
+        'alloc_pct': 0.95,  # 动用95%仓位防滑点
+        'verbose': True,
+        # --- 实盘账户状态注入 ---
+        'live_state': {
+            'stage': 0,  # 0 代表当前实盘空仓，等待发车
+            'cost_price': 0.0,  # 空仓状态下成本价设为 0
+            'shares': 0  # 空仓状态下股数设为 0
         }
     },
     # 💡 未来你跑完 NVDA 寻优后，可以直接取消注释并填入参数
-    # 'NVDA': {
-    #     'strategy': 'trend',
-    #     'entry_period': 50,
-    #     'exit_period': 20,
-    #     'alloc_pct': 0.95,
-    #     'verbose': True,
-    #     'live_state': None
-    # }
+    'NVDA': {
+        'strategy': 'trend',
+        'entry_period': 30,
+        'exit_period': 20,
+        'alloc_pct': 0.95,
+        'verbose': True,
+        'live_state': {
+            'stage': 2,  # 0 代表当前实盘空仓，等待发车
+            'cost_price': 404.29,  # 空仓状态下成本价设为 0
+            'shares': 12  # 空仓状态下股数设为 0
+        }
+    },
+    # 🌟 新增：微软 (稳健大白马 - 闪击网格+追踪止盈)
+    'MSFT': {
+        'strategy': 'grid',
+        # --- MSFT 专属移动追踪网格最优参数 ---
+        'rsi_entry_th': 45,  # 进场更严谨
+        'rsi_exit_th': 80,
+        'drop1_pct': 0.03,  # 浅坑极速加仓
+        'drop2_pct': 0.05,  # 快速打满防守
+        'ma_period': 150,
+        'initial_alloc': 0.30,
+        'add1_alloc': 0.30,
+        'add2_alloc': 0.40,
+        'update_ref_on_add': False,  # 固定建仓基准
+        'profit_target_pct': 0.10,  # 追踪激活线：10%
+        'trailing_drop_pct': 0.05,  # 回撤清仓线：最高点回落5%
+        'verbose': True,
+        # --- 实盘账户状态注入 ---
+        'live_state': {
+            'stage': 2,  # 假设目前空仓，等待入场
+            'cost_price': 400.268,
+            'shares': 11
+        }
+    },
 }
+
 
 # ==================== 2. 主流水线调度器 ====================
 def main():
@@ -66,6 +94,11 @@ def main():
             if config['strategy'] == 'grid' and ticker == 'TSLA':
                 from strategy_reporters import report_tsla
                 report_tsla.generate_strategy_report(ticker=ticker, config=config)
+
+            elif config['strategy'] == 'grid' and ticker == 'MSFT':
+                # 🌟 新增路由：呼叫 MSFT 专属画图脚本
+                from strategy_reporters import report_msft
+                report_msft.generate_strategy_report(ticker=ticker, config=config)
 
             elif config['strategy'] == 'trend' and ticker == 'MU':
                 # 注意：请确保你在 strategy_reporters 目录下创建了 report_mu.py
