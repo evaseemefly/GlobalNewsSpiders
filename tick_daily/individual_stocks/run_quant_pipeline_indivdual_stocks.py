@@ -75,6 +75,27 @@ ASSET_CONFIG = {
             'shares': 11
         }
     },
+    # 🌟 新增：META (高弹性妖股 - 闪击网格+宽容追踪止盈)
+    'META': {
+        'strategy': 'grid',
+        'rsi_entry_th': 50,
+        'rsi_exit_th': 80,
+        'drop1_pct': 0.05,  # 极速一档
+        'drop2_pct': 0.05,  # 极速二档 (瞬间打满)
+        'ma_period': 150,
+        'initial_alloc': 0.30,
+        'add1_alloc': 0.30,
+        'add2_alloc': 0.40,
+        'update_ref_on_add': False,  # 固定基准，闪电战
+        'profit_target_pct': 0.15,  # 追踪激活线：15%
+        'trailing_drop_pct': 0.08,  # 宽容回撤清仓线：最高点回落8%
+        'verbose': True,
+        'live_state': {
+            'stage': 0,
+            'cost_price': 0.0,
+            'shares': 0
+        }
+    }
 }
 
 
@@ -99,6 +120,10 @@ def main():
                 # 🌟 新增路由：呼叫 MSFT 专属画图脚本
                 from strategy_reporters import report_msft
                 report_msft.generate_strategy_report(ticker=ticker, config=config)
+                # 🌟 新增：接入 META 的路由逻辑
+            elif config['strategy'] == 'grid' and ticker == 'META':
+                from strategy_reporters import report_meta
+                report_meta.generate_strategy_report(ticker=ticker, config=config)
 
             elif config['strategy'] == 'trend' and ticker == 'MU':
                 # 注意：请确保你在 strategy_reporters 目录下创建了 report_mu.py

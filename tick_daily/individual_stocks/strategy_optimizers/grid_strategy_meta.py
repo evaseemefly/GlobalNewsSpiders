@@ -1,3 +1,7 @@
+ # + 26-05-26
+# meta 采用了：
+# 闪击追踪网格
+# 移动止盈策略
 import pandas as pd
 import backtrader as bt
 from pathlib import Path
