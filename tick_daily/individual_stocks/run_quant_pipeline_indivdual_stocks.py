@@ -27,16 +27,21 @@ ASSET_CONFIG = {
     },
     'MU': {
         'strategy': 'trend',
-        # --- MU 海龟非对称趋势最优参数 ---
-        'entry_period': 30,  # 敏锐进场：突破过去30日最高点买入
-        'exit_period': 40,  # 宽容防守：跌破过去40日最低点卖出
-        'alloc_pct': 0.95,  # 动用95%仓位防滑点
+        'entry_period': 30,
+        'exit_period': 40,
+        'alloc_pct': 0.95,
         'verbose': True,
-        # --- 实盘账户状态注入 ---
+
+        'live_first_tranche_pct': 0.35,
+        'live_second_tranche_pct': 0.25,
+        'live_final_tranche_pct': 0.35,
+
         'live_state': {
-            'stage': 0,  # 0 代表当前实盘空仓，等待发车
-            'cost_price': 0.0,  # 空仓状态下成本价设为 0
-            'shares': 0  # 空仓状态下股数设为 0
+            'stage': 0,
+            'cost_price': 0.0,
+            'shares': 0,
+            'cash': 7900,
+            'min_trade_shares': 1,
         }
     },
     # 💡 未来你跑完 NVDA 寻优后，可以直接取消注释并填入参数
@@ -127,8 +132,9 @@ def main():
 
             elif config['strategy'] == 'trend' and ticker == 'MU':
                 # 注意：请确保你在 strategy_reporters 目录下创建了 report_mu.py
-                from strategy_reporters import report_mu
-                report_mu.generate_strategy_report(ticker=ticker, config=config)
+                # from strategy_reporters import report_mu
+                from strategy_reporters import report_mu_v2_fixed_py39
+                report_mu_v2_fixed_py39.generate_strategy_report(ticker=ticker, config=config)
 
             elif config['strategy'] == 'trend' and ticker == 'NVDA':
                 from strategy_reporters import report_nvda
