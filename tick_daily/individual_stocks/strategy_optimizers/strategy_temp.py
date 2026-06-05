@@ -1,7 +1,7 @@
 import pandas as pd
 import backtrader as bt
-from pathlib import Path
 import time
+from pathlib import Path
 from enum import Enum, auto
 import warnings
 
@@ -28,7 +28,7 @@ CURRENT_ENV = EnvType.WORK
 CONFIG = get_env_config(CURRENT_ENV)
 
 
-# ==================== 2. 闪击网格 + 移动追踪止盈策略 ====================
+# ==================== 2. 你的策略类 (原封不动) ====================
 class MultiStageStrategy(bt.Strategy):
     params = (
         ('rsi_entry_th', 40),
@@ -36,17 +36,12 @@ class MultiStageStrategy(bt.Strategy):
         ('drop1_pct', 0.05),
         ('drop2_pct', 0.10),
         ('ma_period', 200),
-
         ('initial_alloc', 0.30),
         ('add1_alloc', 0.30),
         ('add2_alloc', 0.40),
-
-        ('update_ref_on_add', False),  # ⚡️ 闪击网格核心：固定基准，快速满仓
-
-        # 🌟 移动止盈核心参数
+        ('update_ref_on_add', False),  # ⚡️ 闪击网格核心：固定基准
         ('profit_target_pct', 0.15),
         ('trailing_drop_pct', 0.05),
-
         ('verbose', False),
     )
 
@@ -73,74 +68,59 @@ class MultiStageStrategy(bt.Strategy):
         price = self.data.close[0]
         date = self.data.datetime.date(0)
 
-        # 动态刷新最高价记录
         if self.stage > 0:
             if price > self.highest_price_since_buy:
                 self.highest_price_since_buy = price
 
-        # ==================== 1. 离场逻辑 ====================
+        # 1. 离场逻辑
         if self.stage > 0:
-            # 条件 A：RSI 极度超买 (全仓离场)
             if self.rsi[0] >= self.params.rsi_exit_th:
                 self.order = self.close()
-                self.stage = 0
-                self.highest_price_since_buy = 0.0
+                self.stage, self.highest_price_since_buy = 0, 0.0
                 return
-
-            # 条件 B：硬止损跌破长线均线 (全仓割肉)
             if price < self.ma200[0] * 0.85:
                 self.order = self.close()
-                self.stage = 0
-                self.highest_price_since_buy = 0.0
+                self.stage, self.highest_price_since_buy = 0, 0.0
                 return
-
-            # ⚡️ 条件 C：移动追踪止盈 (Trailing Stop)
             if self.params.profit_target_pct > 0 and self.position:
                 avg_price = self.position.price
-                # 激活警报
                 if self.highest_price_since_buy >= avg_price * (1 + self.params.profit_target_pct):
-                    # 跌破追踪线
                     trigger_price = self.highest_price_since_buy * (1 - self.params.trailing_drop_pct)
                     if price <= trigger_price:
                         self.order = self.close()
-                        self.stage = 0
-                        self.highest_price_since_buy = 0.0
+                        self.stage, self.highest_price_since_buy = 0, 0.0
                         return
 
-        # ==================== 2. 建仓 / 加仓逻辑 ====================
+        # 2. 建仓 / 加仓逻辑
         if self.stage == 0:
             if self.rsi[0] <= self.params.rsi_entry_th and price > self.ma200[0]:
                 size = int(self.broker.get_value() * self.params.initial_alloc / price)
                 self.order = self.buy(size=size)
-                self.initial_buy_price = price
-                self.last_buy_price = price
+                self.initial_buy_price = self.last_buy_price = price
                 self.stage = 1
                 self.entry_date = date
                 self.highest_price_since_buy = price
-
         elif self.stage == 1:
             ref_price = self.last_buy_price if self.params.update_ref_on_add else self.initial_buy_price
             if price <= ref_price * (1 - self.params.drop1_pct):
                 size = int(self.broker.get_value() * self.params.add1_alloc / price)
                 self.order = self.buy(size=size)
-                if self.params.update_ref_on_add:
-                    self.last_buy_price = price
+                if self.params.update_ref_on_add: self.last_buy_price = price
                 self.stage = 2
-
         elif self.stage == 2:
             ref_price = self.last_buy_price if self.params.update_ref_on_add else self.initial_buy_price
             if price <= ref_price * (1 - self.params.drop2_pct):
                 size = int(self.broker.get_value() * self.params.add2_alloc / price)
                 self.order = self.buy(size=size)
-                if self.params.update_ref_on_add:
-                    self.last_buy_price = price
+                if self.params.update_ref_on_add: self.last_buy_price = price
                 self.stage = 3
 
 
-# ==================== 3. 主回测函数 ====================
-def run_optimization(ticker: str, verbose_strategy: bool = False):
-    print(f"🚀 开始对 {ticker} 进行【闪击网格】参数寻优...")
+# ==================== 3. 滚动窗盲测 (WFO) 引擎 ====================
+def run_wfo_for_avgo(ticker="AVGO"):
+    print(f"🚀 开始对 {ticker} 执行 Walk-Forward Optimization (滚动窗盲测)...")
 
+    # --- A. 数据加载 ---
     file_path = CONFIG['ind_stock_dir'] / f"individual_stocks_master_{ticker}.csv"
     if not file_path.exists():
         print(f"❌ 找不到文件: {file_path}")
@@ -149,88 +129,134 @@ def run_optimization(ticker: str, verbose_strategy: bool = False):
     df = pd.read_csv(file_path)
     df['trade_date_utc'] = pd.to_datetime(df['trade_date_utc'])
     df = df.set_index('trade_date_utc').sort_index()
+    df = df.rename(columns={f'{ticker}_open': 'open', f'{ticker}_high': 'high',
+                            f'{ticker}_low': 'low', f'{ticker}_close': 'close', f'{ticker}_volume': 'volume'})
 
-    df = df.rename(columns={
-        f'{ticker}_open': 'open', f'{ticker}_high': 'high',
-        f'{ticker}_low': 'low', f'{ticker}_close': 'close',
-        f'{ticker}_volume': 'volume'
-    })
+    # --- B. WFO 参数配置 ---
+    train_months = 24  # 用过去2年数据寻找参数
+    test_months = 6  # 盲测紧接着的未来半年
+    ma_period = 200  # 你的长线均线预热需求
 
-    data = bt.feeds.PandasData(dataname=df)
-    cerebro = bt.Cerebro(optreturn=False)
-    cerebro.adddata(data)
-    cerebro.broker.setcash(100000.0)
-    cerebro.broker.setcommission(commission=0.001)
-    cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
+    if len(df) <= ma_period:
+        print("❌ 数据总长度不足以支撑 200 天预热。")
+        return
 
-    # Buy & Hold 基准计算 (新增最大回撤统计)
-    bh_df = df.iloc[200:].copy()
-    start_price = bh_df['close'].iloc[0]
-    end_price = bh_df['close'].iloc[-1]
-    bh_return_pct = (end_price - start_price) / start_price * 100
+    # 第一个有效的训练起点：跳过最初的 200 天预热期
+    current_train_start = df.index[ma_period]
+    end_of_data = df.index[-1]
 
-    bh_df['rolling_max'] = bh_df['close'].cummax()
-    bh_df['drawdown'] = (bh_df['close'] - bh_df['rolling_max']) / bh_df['rolling_max']
-    bh_max_dd = abs(bh_df['drawdown'].min() * 100)
-
-    print("\n" + "⚖️" * 30)
-    print(f"📈 【Buy & Hold 基准】{ticker}（从第200天起）")
-    print(f"建仓价: ${start_price:.2f} → 最终价: ${end_price:.2f}")
-    print(f"总收益率: {bh_return_pct:.2f}%")
-    print(f"最大回撤: {bh_max_dd:.2f}%")
-    print("⚖️" * 30 + "\n")
-
-    # ⚡️ 闪击战专属寻优网格
-    cerebro.optstrategy(
-        MultiStageStrategy,
-        rsi_entry_th=[40, 45, 50],
-        rsi_exit_th=[70, 75, 80],
-        drop1_pct=[0.03, 0.05],  # 极速一档
-        drop2_pct=[0.05, 0.08, 0.10],  # 极速二档满仓
-        ma_period=[150, 200],
-        update_ref_on_add=[False],  # 强制固定基准
-        profit_target_pct=[0.10, 0.15],  # 追踪激活线
-        trailing_drop_pct=[0.05, 0.08, 0.10],  # META 波动大，追踪回撤可适当放宽
-        verbose=[verbose_strategy]
-    )
-
-    print("⏳ 正在进行参数回测...")
+    oos_results = []
+    step = 1
     start_time = time.time()
-    opt_runs = cerebro.run(maxcpus=None)
 
-    results = []
-    for run in opt_runs:
-        for strategy in run:
-            p = strategy.params
-            final_value = strategy.broker.get_value()
-            total_return = (final_value - 100000) / 100000 * 100
+    # --- C. 核心滚动循环 ---
+    while True:
+        train_end = current_train_start + pd.DateOffset(months=train_months)
+        test_end = train_end + pd.DateOffset(months=test_months)
 
-            drawdown = strategy.analyzers.drawdown.get_analysis()
-            max_dd = drawdown.get('max', {}).get('drawdown', 0.0)
+        # 截断处理：如果测试期超出了我们的最新数据，就结束滚动
+        if test_end > end_of_data:
+            if train_end >= end_of_data: break
+            test_end = end_of_data
 
-            results.append({
-                'rsi_entry': p.rsi_entry_th,
-                'rsi_exit': p.rsi_exit_th,
-                'drop1_pct': f"{p.drop1_pct * 100:.0f}%",
-                'drop2_pct': f"{p.drop2_pct * 100:.0f}%",
-                'ma_period': p.ma_period,
-                'update_ref': '固定',
-                'profit_target': f"{p.profit_target_pct * 100:.0f}%",
-                'trailing_drop': f"{p.trailing_drop_pct * 100:.0f}%",
-                'final_value': round(final_value, 2),
-                'return_%': round(total_return, 2),
-                'max_drawdown_%': round(max_dd, 2),
-            })
+        print("\n" + "=" * 70)
+        print(f"🔄 [Step {step}] 训练窗(已知历史): {current_train_start.date()} 至 {train_end.date()}")
+        print(f"👁️‍🗨️ [Step {step}] 盲测窗(未知未来): {train_end.date()} 至 {test_end.date()}")
 
-    res_df = pd.DataFrame(results).sort_values(by='final_value', ascending=False)
+        # ---------------------------------------------------------
+        # 阶段 1：训练寻找当前周期最优参数 (In-Sample)
+        # ---------------------------------------------------------
+        # 💡 神级操作：往回多取 200 个交易日垫底，防止均线断层！
+        train_start_idx = df.index.searchsorted(current_train_start)
+        train_warmup_idx = max(0, train_start_idx - ma_period)
+        train_end_idx = df.index.searchsorted(train_end)
+        train_df = df.iloc[train_warmup_idx: train_end_idx]
 
-    print("\n" + "=" * 100)
-    print(f"🎯 {ticker} 闪击网格寻优 Top 20 结果")
-    print("=" * 100)
-    print(res_df.head(20).to_string(index=False))
-    print("=" * 100)
-    print(f"⏱️ 总耗时: {time.time() - start_time:.2f} 秒")
+        cerebro_train = bt.Cerebro(optreturn=False)
+        cerebro_train.adddata(bt.feeds.PandasData(dataname=train_df))
+        cerebro_train.broker.setcash(100000.0)
+
+        # 组合网格 (2x2x2 = 8种组合，快速寻优)
+        cerebro_train.optstrategy(
+            MultiStageStrategy,
+            rsi_entry_th=[45, 50],
+            drop1_pct=[0.03, 0.05],
+            drop2_pct=[0.05, 0.08],
+            profit_target_pct=[0.10, 0.15],
+            trailing_drop_pct=[0.05, 0.08],
+            verbose=[False]
+        )
+
+        opt_runs = cerebro_train.run(maxcpus=None)
+
+        # 选出这 24 个月里赚钱最多的参数组合
+        best_params = None
+        best_return = -999.0
+
+        for run in opt_runs:
+            for strategy in run:
+                ret = (strategy.broker.get_value() - 100000) / 100000
+                if ret > best_return:
+                    best_return = ret
+                    best_params = strategy.params
+
+        print(f"   🏆 训练期第一名参数: RSI入场={best_params.rsi_entry_th}, "
+              f"一档跌幅={best_params.drop1_pct * 100:.0f}%, 激活线={best_params.profit_target_pct * 100:.0f}%, "
+              f"回撤清仓={best_params.trailing_drop_pct * 100:.0f}%")
+
+        # ---------------------------------------------------------
+        # 阶段 2：盲测未来 6 个月的真实表现 (Out-of-Sample)
+        # ---------------------------------------------------------
+        # 同样往回取 200 个交易日，确保盲测第一天就能算出均线并交易
+        test_start_idx = df.index.searchsorted(train_end)
+        test_warmup_idx = max(0, test_start_idx - ma_period)
+        test_end_idx = df.index.searchsorted(test_end)
+        test_df = df.iloc[test_warmup_idx: test_end_idx]
+
+        cerebro_test = bt.Cerebro()
+        cerebro_test.adddata(bt.feeds.PandasData(dataname=test_df))
+        cerebro_test.broker.setcash(100000.0)
+
+        # ⚠️ 锁定训练得到的参数，绝对不许修改，直接放入盲测
+        cerebro_test.addstrategy(
+            MultiStageStrategy,
+            rsi_entry_th=best_params.rsi_entry_th,
+            drop1_pct=best_params.drop1_pct,
+            drop2_pct=best_params.drop2_pct,
+            profit_target_pct=best_params.profit_target_pct,
+            trailing_drop_pct=best_params.trailing_drop_pct,
+            verbose=False
+        )
+
+        cerebro_test.run()
+        oos_return = (cerebro_test.broker.get_value() - 100000) / 100000 * 100
+        print(f"   📊 盲测期真实收益率: {oos_return:.2f}%")
+
+        oos_results.append({
+            'Step': step,
+            'Blind_Test_Period': f"{train_end.date()} to {test_end.date()}",
+            'Real_Return_%': round(oos_return, 2),
+            'Params (RSI/Drop1/TP/Trail)': f"{best_params.rsi_entry_th} / {best_params.drop1_pct} / {best_params.profit_target_pct} / {best_params.trailing_drop_pct}"
+        })
+
+        # 窗口整体往前滚动 6 个月，进入下一轮时间切片
+        current_train_start += pd.DateOffset(months=test_months)
+        step += 1
+
+    # --- D. 打印终极盲测战报 ---
+    print("\n" + "🌟" * 35)
+    print(f"【{ticker}】 Walk-Forward Optimization 盲测历史总战报")
+    print("🌟" * 35)
+
+    results_df = pd.DataFrame(oos_results)
+    print(results_df.to_string(index=False))
+
+    total_oos_return = results_df['Real_Return_%'].sum()
+    print(f"\n💰 盲测净利润累加 (剔除所有参数作弊): {total_oos_return:.2f}%")
+    print(f"⏱️ 引擎运行耗时: {time.time() - start_time:.1f} 秒")
+    print("🌟" * 35 + "\n")
 
 
 if __name__ == '__main__':
-    run_optimization("META")
+    # 你可以把 AVGO 的 CSV 数据准备好后运行
+    run_wfo_for_avgo("AVGO")

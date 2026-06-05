@@ -186,7 +186,8 @@ def fetch_daily_stock_data(tickers: list, start_date: str = "2020-01-01"):
 def main(target_stocks=None, start_date="2023-01-01"):
     # 增加参数判断：如果外部没有传入股票池，则使用默认的股票池（保证独立运行不出错）
     if target_stocks is None:
-        target_stocks = ['META', 'MSFT', 'NVDA', 'TSLA', 'MU', 'ASML', 'AMZN']
+        # target_stocks = ['META', 'MSFT', 'NVDA', 'TSLA', 'MU', 'ASML', 'AMZN', 'AVGO']
+        target_stocks = ['AVGO']
     print("=== 🚀 启动个股历史数据防封禁下载引擎 ===")
     # target_stocks = ['META', 'MSFT', 'NVDA', 'TSLA', 'MU', 'ASML', 'AMZN']
     fetch_daily_stock_data(target_stocks, start_date=start_date)
