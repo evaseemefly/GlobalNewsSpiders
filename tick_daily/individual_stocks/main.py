@@ -96,7 +96,30 @@ ASSET_CONFIG = {
             'shares': 32,
             'cash': 0
         }
-    }
+    },
+    # 🌟 新增：博通 (强动量白马 - 紧凑网格 + 宽容追踪止盈)
+    'AVGO': {
+        'strategy': 'grid',
+        'rsi_entry_th': 50,  # WFO寻优结果：低于50才建仓
+        'rsi_exit_th': 80,  # 极度超买强平线
+        'drop1_pct': 0.03,  # WFO寻优结果：跌3%极速加仓 (强势股特性)
+        'drop2_pct': 0.05,  # 紧凑防守：跌5%瞬间满仓
+        'ma_period': 200,  # 使用 200 日线作为牛熊分界
+        'initial_alloc': 0.30,
+        'add1_alloc': 0.30,
+        'add2_alloc': 0.40,
+        'update_ref_on_add': False,  # 固定基准闪电战
+        'profit_target_pct': 0.15,  # WFO寻优结果：15%激活追踪雷达
+        'trailing_drop_pct': 0.08,  # WFO寻优结果：8%的宽容回撤清仓 (兼顾防守与吃大波段)
+        'verbose': True,
+        'live_state': {
+            'stage': 0,  # 假设目前空仓观望
+            'cost_price': 0.0,
+            'shares': 0,
+            'cash': 8000  # 你准备分配给博通的建仓总资金 (请根据实际情况修改)
+        }
+    },
+
 }
 
 
