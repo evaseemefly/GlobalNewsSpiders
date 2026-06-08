@@ -105,9 +105,8 @@ def load_price_data(ticker: str) -> pd.DataFrame:
     df = pd.read_csv(file_path)
     df["trade_date_utc"] = pd.to_datetime(df["trade_date_utc"])
     df = df.set_index("trade_date_utc").sort_index()
-    df = df.rename(
-        columns={f"{ticker}_open": "open", f"{ticker}_high": "high", f"{ticker}_low": "low", f"{ticker}_close": "close",
-                 f"{ticker}_volume": "volume"})
+    df = df.rename(columns={f"{ticker}_open": "open", f"{ticker}_high": "high", f"{ticker}_low": "low",
+                            f"{ticker}_close": "close"})
     return df
 
 
@@ -158,9 +157,12 @@ def generate_strategy_report(ticker: str, config: dict):
     cerebro.broker.setcash(100000.0)
     cerebro.broker.setcommission(commission=0.001)
 
-    cerebro.addstrategy(DonchianTrendStrategy, entry_period=config.get("entry_period", 30),
-                        exit_period=config.get("exit_period", 20), alloc_pct=config.get("alloc_pct", 0.95),
+    cerebro.addstrategy(DonchianTrendStrategy,
+                        entry_period=config.get("entry_period", 30),
+                        exit_period=config.get("exit_period", 20),
+                        alloc_pct=config.get("alloc_pct", 0.95),
                         verbose=config.get("verbose", True))
+
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
 
     results = cerebro.run()
@@ -169,14 +171,14 @@ def generate_strategy_report(ticker: str, config: dict):
     total_return = (strat.broker.get_value() - 100000.0) / 100000.0 * 100
     max_dd = strat.analyzers.drawdown.get_analysis().get("max", {}).get("drawdown", 0.0)
 
-    # -------------- 绘图逻辑 (缩略，与原版完全一致) --------------
+    # ==================== 彻底回滚的 8 轴绘图逻辑 ====================
     plt.rcParams["font.sans-serif"] = ["Arial Unicode MS", "PingFang SC", "SimHei", "Microsoft YaHei"]
     plt.rcParams["axes.unicode_minus"] = False
     fig, axs = plt.subplots(8, 1, figsize=(16, 24), sharex=True,
                             gridspec_kw={"height_ratios": [1.1, 1.5, 1.2, 1, 1, 4.5, 1.2, 1.2]})
     fig.subplots_adjust(hspace=0.12)
     fig.suptitle(
-        f"{ticker} Trend Strategy Backtest Report\nTotal Return: {total_return:.2f}%   Max Drawdown: {max_dd:.2f}%\n注意：图中 Broker / Cash / Position 均为历史回测账户，不代表真实账户",
+        f"{ticker} Trend Strategy Backtest Report V2\nTotal Return: {total_return:.2f}%   Max Drawdown: {max_dd:.2f}%\n注意：图中 Broker / Cash / Position 均为历史回测账户，不代表真实账户",
         fontsize=18, fontweight="bold", y=0.94)
 
     plot_df = df[-200:].copy()
@@ -186,31 +188,118 @@ def generate_strategy_report(ticker: str, config: dict):
     cash = [strat.account_stats.get(d.date(), (np.nan, np.nan, np.nan))[1] for d in dates]
     s_vals, s_cash = pd.Series(vals, index=dates).ffill().bfill(), pd.Series(cash, index=dates).ffill().bfill()
 
+    # 面板 0: 参数表
     axs[0].axis("off")
-    table = axs[0].table(cellText=[
-        ["配置", f"突破 {strat.params.entry_period} 日最高价", f"跌破 {strat.params.exit_period} 日最低价",
-         "分层建仓"]], colLabels=["模块", "入场参数", "退场参数", "说明"], loc="center", cellLoc="center")
+    p = strat.params
+    col_labels = ["模块", "回测参数 / 状态", "实盘解释", "V2 风控修正"]
+    table_data = [
+        ["入场动量引擎", f"突破过去 {p.entry_period} 日最高价", "仅当实盘空仓时才考虑买入",
+         "首笔不再默认 95%，改为分层建仓"],
+        ["退出风控矩阵", f"跌破过去 {p.exit_period} 日最低价", "实盘持仓时作为移动止损线", "触发则执行清仓纪律"],
+        ["回测账户", f"回测目标暴露 {p.alloc_pct * 100:.0f}%", "图中 Cash/Position 是回测结果", "不可直接等同真实账户"],
+        ["实盘账户", f"由 config 自动注入", "以 live_state 为准", "明日指令只基于实盘状态生成"]
+    ]
+    table = axs[0].table(cellText=table_data, colLabels=col_labels, loc="center", cellLoc="center")
+    table.set_fontsize(10)
     table.scale(1, 1.7)
+    for (row, col), cell in table.get_celld().items():
+        cell.set_edgecolor("#bdc3c7")
+        if row == 0:
+            cell.set_text_props(weight="bold", color="white")
+            cell.set_facecolor("#2c3e50")
+        elif col == 0:
+            cell.set_text_props(weight="bold", color="#2c3e50")
+            cell.set_facecolor("#ecf0f1")
 
-    axs[1].plot(dates, plot_df["close"] / plot_df["close"].iloc[0], label=f"Baseline {ticker}", color="gray")
-    axs[1].plot(dates, s_vals / s_vals.iloc[0], label=f"Quant Strategy", color="#e74c3c")
+    # 面板 1: 净值对比
+    axs[1].plot(dates, plot_df["close"] / plot_df["close"].iloc[0], label=f"Baseline {ticker}", color="gray", alpha=0.6,
+                linewidth=1.5)
+    axs[1].plot(dates, s_vals / s_vals.iloc[0], label=f"Quant Strategy", color="#e74c3c", linewidth=2.5)
+    axs[1].axhline(1.0, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
+    axs[1].set_ylabel("Net Value", fontsize=10)
     axs[1].legend(loc="upper left")
+    axs[1].grid(True, linestyle=":", alpha=0.6)
 
-    axs[2].plot(dates, s_vals, label="Total Value", color="blue")
-    axs[2].plot(dates, s_cash, label="Cash", color="red")
+    # 面板 2: 资金
+    axs[2].plot(dates, s_vals, label="Total Value", color="blue", linewidth=1.5)
+    axs[2].plot(dates, s_cash, label="Cash", color="red", linewidth=1.5)
+    axs[2].set_ylabel("Broker ($)", fontsize=10)
     axs[2].legend(loc="upper left")
+    axs[2].grid(True, linestyle=":", alpha=0.6)
 
-    axs[5].plot(dates, plot_df["close"], label="Price", color="#1f77b4", linewidth=2.5)
-    plot_df["Donchian_Upper"] = df["high"].shift(1).rolling(strat.params.entry_period).max().reindex(plot_df.index)
-    plot_df["Donchian_Lower"] = df["low"].shift(1).rolling(strat.params.exit_period).min().reindex(plot_df.index)
-    axs[5].plot(dates, plot_df["Donchian_Upper"], label="Donchian Upper", color="#d35400", linestyle=":")
-    axs[5].plot(dates, plot_df["Donchian_Lower"], label="Donchian Lower", color="#16a085", linestyle=":")
-    axs[5].legend(loc="upper left")
+    # 面板 3: PnL
+    axs[3].axhline(0, color="black", linewidth=0.8)
+    has_pnl = False
+    for dt, pnl in strat.closed_pnl:
+        if pd.Timestamp(dt) in dates:
+            has_pnl = True
+            color = "red" if pnl > 0 else "green"
+            axs[3].scatter(dt, pnl, color=color, s=120, edgecolors="black", linewidth=0.5, zorder=5)
+    if not has_pnl: axs[3].set_ylim(-1000, 1000)
+    axs[3].set_ylabel("Net PnL ($)", fontsize=10)
+    axs[3].grid(True, linestyle=":", alpha=0.6)
+
+    # 面板 4: 仓位比例
+    s_pos_ratio = (s_vals - s_cash) / s_vals * 100
+    axs[4].bar(dates, s_pos_ratio, color="#3498db", alpha=0.7, width=1.0)
+    axs[4].set_ylabel("Position (%)", fontsize=10)
+    axs[4].set_ylim(0, 105)
+    axs[4].set_yticks([0, 25, 50, 75, 100])
+    axs[4].grid(True, linestyle=":", alpha=0.6)
+
+    # 面板 5: 主图 + 交易记录 + 数量
+    axs[5].plot(dates, plot_df["close"], label="Price", color="#1f77b4", linewidth=2.5, zorder=4)
+    axs[5].plot(dates, plot_df['MA10'], label='MA10', color='#95a5a6', linewidth=1, alpha=0.7)
+    axs[5].plot(dates, plot_df['MA20'], label='MA20', color='#8e44ad', linewidth=1.2, linestyle='--')
+    axs[5].plot(dates, plot_df['MA50'], label='MA50', color='#f39c12', linewidth=1.5, alpha=0.8)
+    axs[5].plot(dates, plot_df['MA200'], label='MA200', color='#c0392b', linewidth=2)
+    axs[5].fill_between(dates, plot_df['BB_Lower'], plot_df['BB_Upper'], color='gray', alpha=0.15,
+                        label='Bollinger Bands')
+
+    plot_df["Donchian_Upper"] = df["high"].shift(1).rolling(p.entry_period).max().reindex(plot_df.index)
+    plot_df["Donchian_Lower"] = df["low"].shift(1).rolling(p.exit_period).min().reindex(plot_df.index)
+    axs[5].plot(dates, plot_df["Donchian_Upper"], label=f"Donchian Upper {p.entry_period}D", color="#d35400",
+                linewidth=1.4, linestyle=":")
+    axs[5].plot(dates, plot_df["Donchian_Lower"], label=f"Donchian Lower {p.exit_period}D", color="#16a085",
+                linewidth=1.4, linestyle=":")
+
+    for action, date, p_trade, stage, size in strat.trades_history:
+        if pd.Timestamp(date) in dates:
+            color = "red" if action == "BUY" else "green"
+            offset = 12 if action == "BUY" else -22
+            axs[5].scatter(date, p_trade, color=color, marker="o", s=120, zorder=8, edgecolors="white", linewidth=1.5)
+            # 补回了带数量的买卖标记！
+            axs[5].annotate(f"BT {'+' if action == 'BUY' else '-'}{size}", xy=(date, p_trade), xytext=(0, offset),
+                            textcoords="offset points", ha="center", color=color, fontsize=9, fontweight="bold",
+                            zorder=10, bbox=dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.7))
+    axs[5].set_ylabel("Price", fontsize=10)
+    axs[5].legend(loc="upper left", ncol=3, fontsize=8)
+    axs[5].grid(True, linestyle=":", alpha=0.6)
+
+    # 面板 6: MACD
+    axs[6].plot(dates, plot_df["MACD_DIF"], color="#1f77b4", label="DIF", linewidth=1)
+    axs[6].plot(dates, plot_df["MACD_DEA"], color="#ff7f0e", label="DEA", linewidth=1)
+    colors = ["#d62728" if m > 0 else "#2ca02c" for m in plot_df["MACD_Hist"]]
+    axs[6].bar(dates, plot_df["MACD_Hist"], color=colors, alpha=0.6, width=0.8, label="MACD Hist")
+    axs[6].axhline(0, color="gray", linestyle="--", linewidth=0.8)
+    axs[6].set_ylabel("MACD", fontsize=10)
+    axs[6].legend(loc="upper left", ncol=3, fontsize=9)
+    axs[6].grid(True, linestyle=":", alpha=0.6)
+
+    # 面板 7: RSI
+    axs[7].plot(dates, plot_df["RSI"], label="RSI(14)", color="#8e44ad", linewidth=1.5)
+    axs[7].axhline(70, color="red", linestyle="--", alpha=0.5)
+    axs[7].axhline(30, color="green", linestyle="--", alpha=0.5)
+    axs[7].fill_between(dates, 30, 70, color="#8e44ad", alpha=0.05)
+    axs[7].set_ylim(0, 100)
+    axs[7].set_ylabel("RSI(14)", fontsize=10)
+    axs[7].legend(loc="upper left", fontsize=9)
+    axs[7].grid(True, linestyle=":", alpha=0.6)
 
     pdf_path = CONFIG["ind_stock_dir"] / f"{ticker}_trend_strategy_report.pdf"
     fig.savefig(pdf_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"✅ {ticker} 趋势图表已生成: {pdf_path}")
+    print(f"✅ {ticker} 专属 8轴趋势研报图 V2 成功生成！")
 
     # -------------- 打印实盘指令 --------------
     print_next_day_signals_v2(strat, df, config, ticker)

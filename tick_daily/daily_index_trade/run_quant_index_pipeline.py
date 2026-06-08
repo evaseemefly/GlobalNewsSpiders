@@ -7,8 +7,8 @@
 import sys
 import time
 from pathlib import Path
-from daily_singal_generator_all_grok import generate_daily_report as run_grok
-from daily_trade_radar_all_gemini import generate_daily_report as run_gemini
+from daily_singal_generator_all_grok_v2 import generate_daily_report as run_grok
+from daily_trade_radar_all_gemini_v2 import generate_daily_report as run_gemini
 
 
 def main():

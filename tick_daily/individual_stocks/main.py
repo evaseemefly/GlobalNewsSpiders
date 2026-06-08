@@ -111,7 +111,7 @@ ASSET_CONFIG = {
         'update_ref_on_add': False,  # 固定基准闪电战
         'profit_target_pct': 0.15,  # WFO寻优结果：15%激活追踪雷达
         'trailing_drop_pct': 0.08,  # WFO寻优结果：8%的宽容回撤清仓 (兼顾防守与吃大波段)
-        'verbose': True,
+        'verbose': False,
         'live_state': {
             'stage': 0,  # 假设目前空仓观望
             'cost_price': 0.0,
