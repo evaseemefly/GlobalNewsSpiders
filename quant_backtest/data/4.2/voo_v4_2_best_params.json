@@ -1,0 +1,69 @@
+{
+  "transaction_cost_rate": 0.0002,
+  "v3_fixed_params": {
+    "asset": "VOO",
+    "ma_len": 100,
+    "us10y_th": 0.15,
+    "vix_th": 45,
+    "rsi_th": 30,
+    "risk_pos": 0.3,
+    "risk_on_pos": 1.0,
+    "crash_pos": 0.3,
+    "panic_rsi_low": 35,
+    "panic_rsi_high": 45
+  },
+  "v3_baseline_metrics": {
+    "cagr": 0.11065761272759445,
+    "max_dd": -0.15915352281051795,
+    "calmar": 0.6952884910963556,
+    "vol": 0.09926234220119981,
+    "sharpe": 1.1147995329718998,
+    "total_turnover": 154.7,
+    "annual_turnover": 14.21488679245283,
+    "trade_count": 221,
+    "avg_position": 0.6938732394366197,
+    "time_in_market": 69.38732394366197,
+    "worst_year": -0.05651022898695479,
+    "recovery_days": 399,
+    "total_ret": 2.1336271857717812
+  },
+  "v4_2_best_params": {
+    "vix_warning_low": 15,
+    "vix_warning_high": 20,
+    "vix_risk_low": 20,
+    "vix_risk_high": 30,
+    "vix_crash_th": 30,
+    "vix_extreme_th": 45,
+    "panic_drop_pct": 0.02,
+    "risk_warning_pos": 0.6,
+    "panic_reversal_pos": 0.4,
+    "risk_warning_confirm_days": 3,
+    "risk_warning_gap_buy_pct": 0.25,
+    "risk_repair_vix_th": 20,
+    "risk_repair_gap_buy_pct": 0.67,
+    "risk_on_gap_buy_pct": 1.0,
+    "panic_gap_buy_pct": 0.5
+  },
+  "v4_2_best_metrics": {
+    "cagr": 0.09867202456949276,
+    "max_dd": -0.1281391942806487,
+    "calmar": 0.7700378102376907,
+    "vol": 0.08866679644925332,
+    "sharpe": 1.1128407534827958,
+    "total_turnover": 196.49769113229337,
+    "annual_turnover": 18.055542562533372,
+    "trade_count": 515,
+    "avg_position": 0.640670625014526,
+    "time_in_market": 64.0670625014526,
+    "worst_year": -0.06074017916094576,
+    "recovery_days": 399,
+    "total_ret": 1.7846165667237255,
+    "score": 0.2685521411401139
+  },
+  "notes": [
+    "V4.2 keeps V3 core parameters fixed.",
+    "V4.2 narrows VIX state thresholds according to regime validation.",
+    "V4.2 uses transaction costs and annualized turnover.",
+    "Primary sort is Calmar; score is auxiliary."
+  ]
+}
