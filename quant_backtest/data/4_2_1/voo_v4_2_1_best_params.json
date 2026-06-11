@@ -1,0 +1,69 @@
+{
+  "transaction_cost_rate": 0.0002,
+  "v3_fixed_params": {
+    "asset": "VOO",
+    "ma_len": 100,
+    "us10y_th": 0.15,
+    "vix_th": 45,
+    "rsi_th": 30,
+    "risk_pos": 0.3,
+    "risk_on_pos": 1.0,
+    "crash_pos": 0.3,
+    "panic_rsi_low": 35,
+    "panic_rsi_high": 45
+  },
+  "v3_baseline_metrics": {
+    "cagr": 0.11013191590148019,
+    "max_dd": -0.15915352281051795,
+    "calmar": 0.6919854110461571,
+    "vol": 0.09925730519998034,
+    "sharpe": 1.1095598019671202,
+    "total_turnover": 155.39999999999998,
+    "annual_turnover": 14.275616197183096,
+    "trade_count": 222,
+    "avg_position": 0.6937346004927842,
+    "time_in_market": 69.37346004927842,
+    "worst_year": -0.05651022898695479,
+    "recovery_days": 399,
+    "total_ret": 2.118415069586636
+  },
+  "v4_2_1_best_params": {
+    "vix_warning_low": 15,
+    "vix_warning_high": 20,
+    "vix_risk_low": 20,
+    "vix_risk_high": 30,
+    "vix_crash_th": 30,
+    "vix_extreme_th": 45,
+    "panic_drop_pct": 0.02,
+    "risk_warning_pos": 0.6,
+    "panic_reversal_pos": 0.4,
+    "risk_warning_confirm_days": 3,
+    "risk_warning_gap_buy_pct": 0.25,
+    "risk_repair_vix_th": 20,
+    "risk_repair_gap_buy_pct": 0.67,
+    "risk_on_gap_buy_pct": 1.0,
+    "panic_gap_buy_pct": 0.5
+  },
+  "v4_2_1_best_metrics": {
+    "cagr": 0.09816918877838887,
+    "max_dd": -0.1281391942806487,
+    "calmar": 0.7661136729436588,
+    "vol": 0.08866414912179048,
+    "sharpe": 1.1072027392214876,
+    "total_turnover": 196.49769113229337,
+    "annual_turnover": 18.051001430098125,
+    "trade_count": 515,
+    "avg_position": 0.640550712791712,
+    "time_in_market": 64.0550712791712,
+    "worst_year": -0.06074017916094576,
+    "recovery_days": 399,
+    "total_ret": 1.7714885603334607,
+    "score": 0.26476423781913944
+  },
+  "notes": [
+    "V4.2.1 keeps V3 core parameters fixed.",
+    "V4.2.1 narrows VIX state thresholds according to regime validation.",
+    "V4.2.1 uses transaction costs and annualized turnover.",
+    "Primary sort is Calmar; score is auxiliary."
+  ]
+}

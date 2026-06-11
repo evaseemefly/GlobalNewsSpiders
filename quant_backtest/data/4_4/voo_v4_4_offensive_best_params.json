@@ -1,0 +1,91 @@
+{
+  "transaction_cost_rate": 0.0002,
+  "v3_fixed_params": {
+    "asset": "VOO",
+    "ma_len": 100,
+    "us10y_th": 0.15,
+    "vix_th": 45,
+    "rsi_th": 30,
+    "risk_pos": 0.3
+  },
+  "v3_metrics": {
+    "total_ret": 2.118415069586636,
+    "cagr": 0.11013191590148019,
+    "max_dd": -0.15915352281051795,
+    "calmar": 0.6919854110461571,
+    "ann_vol": 0.09925730519998034,
+    "sharpe": 1.1095598019671202,
+    "sortino": 1.3144022921234917,
+    "total_turnover": 155.39999999999998,
+    "annual_turnover": 14.275616197183096,
+    "trade_count": 222,
+    "avg_position": 0.6937346004927842,
+    "time_in_market": 69.37346004927842,
+    "worst_year": -0.05651022898695479,
+    "recovery_days": 399
+  },
+  "hard_filters": {
+    "min_cagr": 0.11013191590148019,
+    "max_allowed_dd": -0.18,
+    "min_calmar": 0.6227868699415414,
+    "max_trade_count": 333
+  },
+  "cagr_top1_params": {
+    "risk_pos": 0.3,
+    "core_floor": 0.0,
+    "panic_drop_pct": 0.02,
+    "panic_reversal_pos": 0.8,
+    "panic_rsi_low": 35,
+    "panic_rsi_high": 45,
+    "recovery_gap_buy_pct": 1.0,
+    "dip_buy_gap_buy_pct": 0.75
+  },
+  "cagr_top1_metrics": {
+    "total_ret": 2.155356485376627,
+    "cagr": 0.11133355272233825,
+    "max_dd": -0.1664100413866553,
+    "calmar": 0.6690314586464989,
+    "ann_vol": 0.10066360691850963,
+    "sharpe": 1.10599606084517,
+    "sortino": 1.3084547110307498,
+    "annual_turnover": 15.469844064386315,
+    "trade_count": 249,
+    "avg_position": 0.6963745160154875,
+    "time_in_market": 69.63745160154875,
+    "worst_year": -0.08353378095836961,
+    "recovery_days": 525,
+    "score": 0.553125
+  },
+  "score_top1_params": {
+    "risk_pos": 0.3,
+    "core_floor": 0.0,
+    "panic_drop_pct": 0.02,
+    "panic_reversal_pos": 0.5,
+    "panic_rsi_low": 35,
+    "panic_rsi_high": 45,
+    "recovery_gap_buy_pct": 1.0,
+    "dip_buy_gap_buy_pct": 0.75
+  },
+  "score_top1_metrics": {
+    "total_ret": 2.1336829925286636,
+    "cagr": 0.11063011267001244,
+    "max_dd": -0.16205630642770033,
+    "calmar": 0.6826646559377735,
+    "ann_vol": 0.09966844869828723,
+    "sharpe": 1.109981284096314,
+    "sortino": 1.3153197401533823,
+    "annual_turnover": 14.753307344064385,
+    "trade_count": 249,
+    "avg_position": 0.6947905667018655,
+    "time_in_market": 69.47905667018655,
+    "worst_year": -0.06732285227361146,
+    "recovery_days": 399,
+    "score": 0.7906249999999999
+  },
+  "notes": [
+    "V4.4 Offensive uses V3 as signal layer.",
+    "Hard filters are applied before ranking.",
+    "Two rankings are provided: CAGR-first and Score-first.",
+    "Score includes CAGR, Calmar, Sharpe, Sortino, turnover, and trade count."
+  ]
+}

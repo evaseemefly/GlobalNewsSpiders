@@ -1,0 +1,2 @@
+﻿vix_warning_low,vix_warning_high,vix_risk_low,vix_risk_high,vix_crash_th,vix_extreme_th,panic_drop_pct,count,median_calmar,mean_calmar,max_calmar,median_cagr,median_max_dd,median_annual_turnover
+15,20,20,30,30,45,0.02,144,0.7355569543647302,0.7374078747296289,0.7661136729436588,0.09787447314208808,-0.13267991735209778,18.217906210196766
