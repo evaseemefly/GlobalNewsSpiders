@@ -13,7 +13,7 @@ from curl_cffi import requests as cffi_requests
 # 🌐 V2Ray 代理配置 (Mac 环境)
 # ==========================================
 # PROXY_URL = 'http://127.0.0.1:1087'  # 确保你的 V2Ray 端口是 1087
-PROXY_URL = 'http://127.0.0.1:7890'     # ubuntu
+PROXY_URL = 'http://127.0.0.1:7890'  # ubuntu
 
 os.environ['HTTP_PROXY'] = PROXY_URL
 os.environ['HTTPS_PROXY'] = PROXY_URL
@@ -52,6 +52,30 @@ def fetch_historical_broad_market():
         'US10Y': '^TNX',  # <-- 新增：十年期美债收益率
         'VIX': '^VIX'  # <-- 新增：恐慌指数
     }
+
+    # todo:26-06-15 暂时不做现金管理（优先继续优化量化模型）
+    # tickers = {
+    #     # 风险资产
+    #     'VOO': 'VOO',
+    #     'QQQ': 'QQQ',
+    #     'SMH': 'SMH',
+    #
+    #     # 信用风险观察
+    #     'HYG': 'HYG',
+    #
+    #     # 其他资产
+    #     'BTC': 'BTC-USD',
+    #
+    #     # 利率与波动率
+    #     'US10Y': '^TNX',
+    #     'US3M': '^IRX',
+    #     'VIX': '^VIX',
+    #
+    #     # Risk-Off 资金效率模块候选
+    #     'SHV': 'SHV',
+    #     'BIL': 'BIL',
+    #     'SGOV': 'SGOV',
+    # }
 
     print("=== 🚀 开始拉取大类资产历史日线数据 ===")
 
