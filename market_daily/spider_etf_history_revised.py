@@ -29,6 +29,7 @@ if 'NO_PROXY' in os.environ:
 
 TICKERS = {
     'VOO': 'VOO',
+    'RSP': 'RSP',
     'QQQ': 'QQQ',
     'SMH': 'SMH',
     'HYG': 'HYG',
@@ -39,7 +40,7 @@ TICKERS = {
 
 START_DATE = "2014-09-16"
 INTERVAL = "1d"
-US_MARKET_ANCHORS = ('VOO_close', 'QQQ_close', 'SMH_close', 'HYG_close')
+US_MARKET_ANCHORS = ('VOO_close', 'RSP_close', 'QQQ_close', 'SMH_close', 'HYG_close')
 US_MARKET_SAFE_CLOSE_HOUR = 18
 
 

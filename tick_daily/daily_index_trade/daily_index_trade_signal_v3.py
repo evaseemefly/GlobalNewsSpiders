@@ -55,6 +55,10 @@ print(f"📂 数据路径: {CSV_FILE_PATH}")
 
 ASSET_CONFIG = {
     "QQQ": {
+        # todo 26-06-17: QQQ 保持原五层 V3，只增加 profile 以便和 VOO Final #7 分流。
+        "strategy_name": "QQQ Five-Layer V3",
+        "strategy_profile": "five_layer_v3",
+
         # 趋势均线
         "ma_len": 200,
         "crash_ma_len": 200,
@@ -88,22 +92,27 @@ ASSET_CONFIG = {
     },
 
     "VOO": {
+        # todo 26-06-17: VOO 切换为最终确认的 #7 参数化方案。
+        "strategy_name": "VOO Final #7",
+        "strategy_profile": "final7_v3",
+
         # 趋势均线
-        "ma_len": 100,
+        "ma_len": 150,
         "crash_ma_len": 200,
 
         # 利率阈值
-        "us10y_th": 0.15,
+        "us10y_th": 0.08,
 
         # VIX 风险阈值
         "vix_warning_low": 15,
         "vix_warning_high": 20,
-        "vix_risk_th": 20,
+        "vix_risk_th": 38,
+        "vix_ma_multiplier": 1.8,
         "vix_crash_th": 30,
-        "vix_extreme_th": 45,
+        "vix_extreme_th": 38,
 
         # RSI / 恐慌反转
-        "rsi_th": 30,
+        "rsi_th": 32,
         "panic_rsi_low": 35,
         "panic_rsi_high": 45,
         "panic_drop_pct": 0.025,
@@ -111,7 +120,7 @@ ASSET_CONFIG = {
         # 五层仓位
         "risk_on_pos": 1.00,
         "risk_warning_pos": 0.70,
-        "risk_pos": 0.40,
+        "risk_pos": 0.30,
         "panic_reversal_pos": 0.50,
         "crash_pos": 0.30,
 
@@ -140,6 +149,12 @@ def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
 
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
+
+
+def is_final7_profile(p: dict) -> bool:
+    # todo 26-06-17: 用 profile 区分 VOO Final #7 与 QQQ 原五层模型，避免误改 QQQ。
+    """判断是否使用 VOO Final #7 执行逻辑。"""
+    return p.get("strategy_profile") == "final7_v3"
 
 
 def load_master_data() -> pd.DataFrame:
@@ -258,6 +273,81 @@ def classify_market_state(df: pd.DataFrame, asset: str, p: dict) -> dict:
         hyg_divergence = False
 
     vix = today["VIX_close"]
+
+    # todo 26-06-17: VOO Final #7 使用回测一致的三层执行逻辑：
+    # risk_off -> dip_buy -> base_trend -> default，不启用 QQQ 的五层状态。
+    if is_final7_profile(p):
+        vix_dynamic_risk = vix > today["VIX_MA60"] * p.get("vix_ma_multiplier", 1.8)
+        vix_risk = (vix > p["vix_risk_th"]) or vix_dynamic_risk
+
+        risk_off = us10y_rising or hyg_divergence or vix_risk
+        raw_dip_buy = (
+                rsi < p["rsi_th"]
+                and close > open_price
+                and today["VIX_close"] < yesterday["VIX_close"]
+        )
+        dip_buy = raw_dip_buy and not risk_off
+
+        if risk_off:
+            state = "Risk-Off"
+            target_position = p["risk_pos"]
+            trigger_parts = []
+            if us10y_rising:
+                trigger_parts.append(f"US10Y 20日变化>{p['us10y_th']}")
+            if hyg_divergence:
+                trigger_parts.append("HYG 连续3日弱于 MA60 且趋势仍在")
+            if vix > p["vix_risk_th"]:
+                trigger_parts.append(f"VIX>{p['vix_risk_th']}")
+            if vix_dynamic_risk:
+                trigger_parts.append(f"VIX>{p.get('vix_ma_multiplier', 1.8)}×VIX_MA60")
+            trigger_text = "；".join(trigger_parts) if trigger_parts else "风险条件触发"
+            action_reason = (
+                f"🛡️【Final #7 Risk-Off】{trigger_text}，"
+                f"降低至 {int(target_position * 100)}% 防守仓。"
+            )
+        elif dip_buy:
+            state = "Dip-Buy"
+            target_position = p["risk_on_pos"]
+            action_reason = (
+                f"🚨【Final #7 非 Risk-Off 抄底】RSI 跌破 {p['rsi_th']}，"
+                f"收盘强于开盘且 VIX 回落，允许恢复至 {int(target_position * 100)}%。"
+            )
+        elif base_trend:
+            state = "Risk-On"
+            target_position = p["risk_on_pos"]
+            action_reason = (
+                f"📈【Final #7 顺势做多】价格站上 MA{p['ma_len']}，"
+                f"维持 {int(target_position * 100)}% 仓位。"
+            )
+        else:
+            state = "Trend-Weak"
+            target_position = p["risk_pos"]
+            action_reason = (
+                f"📉【Final #7 趋势走弱】跌破 MA{p['ma_len']}，"
+                f"保持 {int(target_position * 100)}% 防守仓。"
+            )
+
+        return {
+            "state": state,
+            "target_position": target_position,
+            "action_reason": action_reason,
+
+            "base_trend": base_trend,
+            "us10y_rising": us10y_rising,
+            "credit_weak": credit_weak,
+            "hyg_divergence": hyg_divergence,
+            "vix_warning": False,
+            "vix_risk": vix_risk,
+            "vix_dynamic_risk": vix_dynamic_risk,
+            "risk_warning": False,
+            "risk_off": risk_off,
+            "panic_reversal": False,
+            "crash": False,
+            "raw_dip_buy": raw_dip_buy,
+            "dip_buy": dip_buy,
+            "daily_return": daily_return,
+        }
+
     vix_warning = p["vix_warning_low"] <= vix <= p["vix_warning_high"]
     vix_risk = vix > p["vix_risk_th"]
     vix_crash = vix > p["vix_crash_th"]
@@ -394,6 +484,43 @@ def add_historical_position(df: pd.DataFrame, asset: str, p: dict) -> pd.DataFra
                      ) & base_trend
 
     vix = df["VIX_close"]
+
+    # todo 26-06-17: VOO Final #7 的历史仓位序列严格对齐回测规则。
+    if is_final7_profile(p):
+        vix_dynamic_risk = vix > df["VIX_MA60"] * p.get("vix_ma_multiplier", 1.8)
+        vix_risk = (vix > p["vix_risk_th"]) | vix_dynamic_risk
+        risk_off = us10y_rising | hyg_divergence | vix_risk
+
+        open_col = f"{asset}_open"
+        raw_dip_buy = (
+                (rsi < p["rsi_th"])
+                & (df[f"{asset}_close"] > df[open_col])
+                & (df["VIX_close"] < df["VIX_close"].shift(1))
+        )
+        dip_buy = raw_dip_buy & (~risk_off)
+
+        df["raw_dip_buy"] = raw_dip_buy
+        df["dip_buy"] = dip_buy
+        df["risk_off"] = risk_off
+        df["vix_dynamic_risk"] = vix_dynamic_risk
+
+        df["position_raw"] = np.select(
+            [
+                risk_off,
+                dip_buy,
+                base_trend,
+            ],
+            [
+                p["risk_pos"],
+                p["risk_on_pos"],
+                p["risk_on_pos"],
+            ],
+            default=p["risk_pos"],
+        )
+
+        df["position"] = df["position_raw"].shift(1).fillna(p["risk_pos"])
+
+        return df
 
     vix_warning = (vix >= p["vix_warning_low"]) & (vix <= p["vix_warning_high"])
     vix_risk = vix > p["vix_risk_th"]
@@ -569,6 +696,17 @@ def build_execution_suggestion(
 """
 
     if market_state == "Risk-Off":
+        # todo 26-06-17: VOO Final #7 没有 Panic-Reversal 插件，Risk-Off 期间只保留防守仓。
+        if is_final7_profile(p):
+            return f"""
+📍 当前为 Final #7 Risk-Off 状态：保持 {target_position * 100:.0f}% 防守仓。
+💡 执行建议:
+   • 暂不新增趋势仓，也不做 Risk-Off 期间满仓抄底。
+   • 等待 Risk-Off 条件解除后，再按 MA{p['ma_len']} 趋势状态恢复仓位。
+   • 核心观察项：US10Y 20日变化、HYG/MA60、VIX 是否低于 {p['vix_risk_th']}。
+{amount_plan}
+"""
+
         return f"""
 📍 当前为 Risk-Off 状态：保持 {target_position * 100:.0f}% 防守仓。
 💡 执行建议:
@@ -667,10 +805,17 @@ def plot_snapshot_with_levels(
     ax2.axhline(buy1_price, color="purple", linestyle=":", linewidth=2, label=f"Buy1 -6% {buy1_price:.2f}")
     ax2.axhline(buy2_price, color="brown", linestyle=":", linewidth=2, label=f"Buy2 -11% {buy2_price:.2f}")
 
+    # todo 26-06-17: VOO Final #7 图表提示改为回测一致的 risk_off 优先口径。
+    risk_note = (
+        "Final #7: Risk-Off 优先；Dip-Buy 仅在非 Risk-Off 下生效"
+        if is_final7_profile(p)
+        else "Risk-Off 下禁止恢复满仓；Panic-Reversal 仅允许小仓试探"
+    )
+
     ax2.text(
         0.02,
         0.05,
-        "Risk-Off 下禁止恢复满仓；Panic-Reversal 仅允许小仓试探",
+        risk_note,
         transform=ax2.transAxes,
         color="red",
         fontsize=11,
@@ -685,8 +830,10 @@ def plot_snapshot_with_levels(
     # RSI
     ax3.plot(df.index, df[f"RSI_14_{asset}"], label="RSI(14)", color="#8e44ad", linewidth=1.5)
     ax3.axhline(p["rsi_th"], color="red", linestyle="--", alpha=0.6, label=f"RSI {p['rsi_th']}")
-    ax3.axhline(p["panic_rsi_low"], color="orange", linestyle="--", alpha=0.6, label="Panic RSI Low")
-    ax3.axhline(p["panic_rsi_high"], color="orange", linestyle="--", alpha=0.6, label="Panic RSI High")
+    # todo 26-06-17: Final #7 不展示 Panic RSI 区间，避免和最终策略逻辑混淆。
+    if not is_final7_profile(p):
+        ax3.axhline(p["panic_rsi_low"], color="orange", linestyle="--", alpha=0.6, label="Panic RSI Low")
+        ax3.axhline(p["panic_rsi_high"], color="orange", linestyle="--", alpha=0.6, label="Panic RSI High")
     ax3.legend(loc="upper left")
     ax3.grid(True, alpha=0.3)
 
@@ -697,7 +844,9 @@ def plot_snapshot_with_levels(
     ax4.legend(loc="upper left")
     ax4.grid(True, alpha=0.3)
 
-    pic_name = f"index_signal_v3_{file_date_str}_{asset.lower()}.png"
+    # todo 26-06-17: VOO Final #7 输出文件名单独标记，避免和旧 V3 图混淆。
+    file_strategy_tag = "final7" if is_final7_profile(p) else "v3"
+    pic_name = f"index_signal_{file_strategy_tag}_{file_date_str}_{asset.lower()}.png"
     save_path = FIGURES_PATH / pic_name
 
     plt.tight_layout()
@@ -760,10 +909,21 @@ def generate_daily_report():
 
         trend_dist = (today[f"{asset}_close"] / today[f"{asset}_MA"] - 1) * 100
 
+        # todo 26-06-17: 日报标题使用策略名，VOO 明确标注 Final #7 参数方案。
+        strategy_name = p.get("strategy_name", f"{asset} V3")
+        strategy_param_line = ""
+        if is_final7_profile(p):
+            strategy_param_line = (
+                f"🎛️【Final #7 参数】MA{p['ma_len']} | US10Y>{p['us10y_th']} | "
+                f"VIX>{p['vix_risk_th']} 或 VIX>{p.get('vix_ma_multiplier', 1.8)}×MA60 | "
+                f"RSI<{p['rsi_th']} | Risk仓位 {p['risk_pos'] * 100:.0f}%\n\n"
+            )
+
         report_content = (
             f"{'=' * 60}\n"
-            f"📊 {asset} 极客量化交易日报 V3 | 结算日: {trade_date}\n"
+            f"📊 {asset} 极客量化交易日报 {strategy_name} | 结算日: {trade_date}\n"
             f"{'=' * 60}\n\n"
+            f"{strategy_param_line}"
             f"🎯【明日实盘交易指令】\n"
             f"   市场状态     : {market_state}\n"
             f"   执行目标仓位 : {target_position * 100:.0f}%\n"
@@ -786,7 +946,9 @@ def generate_daily_report():
 
         print(report_content)
 
-        txt_name = f"index_signal_v3_{file_date_str}_{asset.lower()}.txt"
+        # todo 26-06-17: VOO Final #7 文本报告文件名单独标记，避免覆盖旧 V3 结果。
+        file_strategy_tag = "final7" if is_final7_profile(p) else "v3"
+        txt_name = f"index_signal_{file_strategy_tag}_{file_date_str}_{asset.lower()}.txt"
         txt_path = OUTPUT_PATH / txt_name
         txt_path.write_text(report_content, encoding="utf-8")
         print(f"💾 文本报告已保存: {txt_path.name}")

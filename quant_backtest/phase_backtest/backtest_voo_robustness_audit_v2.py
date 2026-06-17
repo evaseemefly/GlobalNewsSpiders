@@ -4,20 +4,29 @@
 VOO Hybrid 稳健性审计 v2 (Robustness Audit v2)
 
 用途：
-1. 切片回测：验证 Buy & Hold、V3、V4.4 在不同宏观周期下的表现。
+1. 切片回测：验证 Buy & Hold、Final #7、V4.4 参考插件在不同阶段下的表现。
 2. 指标增强：阶段结果输出 CAGR / Total Return / MaxDD，并补充 Calmar、Sharpe、Sortino、换手、交易次数。
-3. 信号修正：V3 Dip-Buy 严格复刻原始 V3 逻辑，恢复 VOO_close > VOO_open 条件。
+3. 信号修正：Final #7 Dip-Buy 保留 VOO_close > VOO_open 条件，但不覆盖 risk_off。
 4. 事件归因增强：
    - 同时输出“信号日收盘价作为入场基准”的未来收益；
    - 以及“下一交易日开盘入场”的未来收益，更贴近实盘执行。
 5. Panic 插件区分：
    - Panic_Event_Raw：满足 panic 条件；
    - Panic_Event_Effective：在 V4.4 执行优先级下真正生效的 panic 事件。
+6. 最终参数固化：
+   - 采用样本外表现更优的 #7 参数方案；
+   - MA150 / US10Y>0.08 / VIX>38 / RSI<32 / 风险仓位 0.3；
+   - 执行层改为 risk_off 优先，dip_buy 不再覆盖系统性避险。
 
 # todo:26-06-08:
 # - 修正 Dip-Buy 与 V3 原始代码保持一致：RSI < rsi_th + close > open + VIX 下降。
 # - 增加 TotalRet 输出，避免把 CAGR 误解为阶段总收益。
 # - 增加 next_open_fwd_5d_ret / next_open_fwd_20d_ret，用于更真实的 Panic 归因。
+
+# todo 26-06- 17:
+# - 最终选择 #7 参数：MA150 / US10Y>0.08 / VIX>38 / RSI<32 / risk_pos=0.30。
+# - 阶段回测主模型改为 Final #7，并生成对应阶段净值走势图。
+# - 信号执行顺序改为 risk_off 优先，dip_buy 仅在非 risk_off 状态下生效。
 """
 
 import pandas as pd
@@ -45,17 +54,17 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 TRANSACTION_COST_RATE = 0.0002
 
-# V3 核心基准
+# todo 26-06- 17: 最终采用样本外表现更优的 #7 参数方案。
 V3_PARAMS = {
     "asset": "VOO",
-    "ma_len": 100,
-    "us10y_th": 0.15,
-    "vix_th": 45,
-    "rsi_th": 30,
+    "ma_len": 150,
+    "us10y_th": 0.08,
+    "vix_th": 38,
+    "rsi_th": 32,
     "risk_pos": 0.30,
 }
 
-# V4.4 最小插件：采用 Score Top 1 参数
+# todo 26-06- 17: V4.4 仅作为参考插件版本，底层参数同步使用 Final #7。
 V4_4_PARAMS = {
     **V3_PARAMS,
     "panic_drop_pct": 0.020,
@@ -64,12 +73,14 @@ V4_4_PARAMS = {
     "panic_rsi_high": 45,
 }
 
-# 宏观周期切片
+# todo 26-06- 17: 阶段窗口改为服务最终参数审计，兼顾训练段、样本外和关键压力阶段。
 MACRO_REGIMES = {
-    "1_加息与贸易战 (2015-2018)": ("2015-01-01", "2018-12-31"),
-    "2_疫情与大放水 (2019-2021)": ("2019-01-01", "2021-12-31"),
-    "3_通胀与大熊市 (2022-2023)": ("2022-01-01", "2023-12-31"),
-    "4_AI狂飙与软着陆 (2024-至今)": ("2024-01-01", "2026-12-31"),
+    "0_全样本 (2014-至今)": ("2014-01-01", "2026-12-31"),
+    "1_训练段 (2014-2021)": ("2014-01-01", "2021-12-31"),
+    "2_样本外 (2022-至今)": ("2022-01-01", "2026-12-31"),
+    "3_COVID压力期 (2020)": ("2020-01-01", "2020-12-31"),
+    "4_加息熊市 (2022)": ("2022-01-01", "2022-12-31"),
+    "5_近三年 (2023-至今)": ("2023-01-01", "2026-12-31"),
 }
 
 
@@ -143,18 +154,20 @@ def prep_data():
 
 def get_signals(df, p):
     """
-    严格复刻 V3 信号层。
+    Final #7 信号层。
 
     注意：
-    原始 V3 的 dip_buy 是：
+    dip_buy 原始触发条件是：
         RSI < rsi_th
         close > open
         VIX < VIX.shift(1)
 
-    原始 V3 中 np.select 的顺序是：
-        [dip_buy, risk_off, base_trend]
-    因此 dip_buy 在逻辑上优先于 risk_off。
-    这里不额外添加 ~risk_off，以保持和 V3 原始代码一致。
+    # todo 26-06- 17:
+    最终参数方案采用 risk_off 优先：
+        1) risk_off => risk_pos
+        2) 非 risk_off 且 dip_buy => 1.0
+        3) base_trend => 1.0
+        4) default => risk_pos
     """
     asset = p["asset"]
 
@@ -173,13 +186,13 @@ def get_signals(df, p):
 
     risk_off = us10y_rising | hyg_divergence | vix_risk
 
-    # todo:26-06-08:
-    # 修正点：恢复 close > open，且不额外添加 ~risk_off。
-    dip_buy = (
+    # todo 26-06- 17: 保留原始 dip-buy 条件，但执行时不允许覆盖 risk_off。
+    raw_dip_buy = (
         (df["RSI_14"] < p["rsi_th"])
         & (df[f"{asset}_close"] > df[f"{asset}_open"])
         & (df["VIX_close"] < df["VIX_close"].shift(1))
     )
+    dip_buy = raw_dip_buy & (~risk_off)
 
     daily_ret = df[f"{asset}_ret"]
 
@@ -190,11 +203,10 @@ def get_signals(df, p):
         & (df["RSI_14"] <= p.get("panic_rsi_high", 0))
     )
 
-    # V4.4 执行顺序中 dip_buy 优先于 panic。
-    # 因此真正由 panic 插件接管的事件需要排除 dip_buy。
+    # todo 26-06- 17: risk_off 优先后，dip_buy 已不覆盖 panic/risk_off。
     panic_triggered_effective = panic_triggered_raw & (~dip_buy)
 
-    return base_trend, risk_off, dip_buy, panic_triggered_raw, panic_triggered_effective
+    return base_trend, risk_off, raw_dip_buy, dip_buy, panic_triggered_raw, panic_triggered_effective
 
 
 def calc_nav_and_turnover(pos, asset_ret):
@@ -206,7 +218,7 @@ def calc_nav_and_turnover(pos, asset_ret):
 
 def run_models(df):
     asset = "VOO"
-    base_trend, risk_off, dip_buy, panic_raw, panic_effective = get_signals(df, V4_4_PARAMS)
+    base_trend, risk_off, raw_dip_buy, dip_buy, panic_raw, panic_effective = get_signals(df, V4_4_PARAMS)
 
     # ========================================================
     # Buy & Hold
@@ -217,24 +229,26 @@ def run_models(df):
     buyhold_turnover = pd.Series(0.0, index=df.index)
 
     # ========================================================
-    # V3 Position
+    # Final #7 Position
     # ========================================================
+    # todo 26-06- 17: 最终方案改为 risk_off 优先，避免 dip_buy 在系统性风险状态下拉满仓位。
     v3_pos_raw = np.select(
-        [dip_buy, risk_off, base_trend],
-        [1.0, V3_PARAMS["risk_pos"], 1.0],
+        [risk_off, dip_buy, base_trend],
+        [V3_PARAMS["risk_pos"], 1.0, 1.0],
         default=V3_PARAMS["risk_pos"],
     )
     v3_pos = pd.Series(v3_pos_raw, index=df.index).shift(1).fillna(V3_PARAMS["risk_pos"])
     v3_nav, v3_net_ret, v3_turnover = calc_nav_and_turnover(v3_pos, df[f"{asset}_ret"])
 
     # ========================================================
-    # V4.4 Position
+    # V4.4 Position（参考）
     # 逻辑顺序和 V4.4 保持一致：
-    # dip_buy > panic_effective > risk_off > base_trend > default
+    # panic_effective > risk_off > dip_buy > base_trend > default
     # ========================================================
+    # todo 26-06- 17: V4.4 仅作为参考插件版本，也不允许 dip_buy 覆盖 risk_off。
     v4_pos_raw = np.select(
-        [dip_buy, panic_effective, risk_off, base_trend],
-        [1.0, V4_4_PARAMS["panic_reversal_pos"], V3_PARAMS["risk_pos"], 1.0],
+        [panic_effective, risk_off, dip_buy, base_trend],
+        [V4_4_PARAMS["panic_reversal_pos"], V3_PARAMS["risk_pos"], 1.0, 1.0],
         default=V3_PARAMS["risk_pos"],
     )
     v4_pos = pd.Series(v4_pos_raw, index=df.index).shift(1).fillna(V3_PARAMS["risk_pos"])
@@ -259,6 +273,7 @@ def run_models(df):
 
     df["Base_Trend"] = base_trend
     df["Risk_Off"] = risk_off
+    df["Raw_Dip_Buy"] = raw_dip_buy
     df["Dip_Buy"] = dip_buy
     df["Panic_Event_Raw"] = panic_raw
     df["Panic_Event_Effective"] = panic_effective
@@ -401,7 +416,13 @@ def print_event_report(df, event_col, title):
 
 def print_audit_report(df):
     print("=" * 100)
-    print("🛡️ VOO 混合量化模型 —— 稳健性审计报告 v2 (Robustness Audit)")
+    print("🛡️ VOO Hybrid Final #7 —— 分阶段稳健性审计报告")
+    # todo 26-06- 17: 明确输出最终实盘候选参数，避免和旧 V3/V4.4 参数混淆。
+    print(
+        f"最终参数: MA{V3_PARAMS['ma_len']} | US10Y>{V3_PARAMS['us10y_th']} | "
+        f"VIX>{V3_PARAMS['vix_th']} | RSI<{V3_PARAMS['rsi_th']} | "
+        f"风险仓位 {V3_PARAMS['risk_pos']}"
+    )
     print("=" * 100)
 
     # ========================================================
@@ -412,8 +433,8 @@ def print_audit_report(df):
     print(
         f"{'阶段':<28} | "
         f"{'Buy&Hold':<28} | "
-        f"{'V3 基准':<28} | "
-        f"{'V4.4 插件':<28}"
+        f"{'Final #7':<28} | "
+        f"{'V4.4 参考':<28}"
     )
     print("-" * 120)
 
@@ -454,7 +475,7 @@ def print_audit_report(df):
     # ========================================================
     # 2. 更完整的阶段指标
     # ========================================================
-    print("\n📌 阶段详细指标：V3 vs V4.4")
+    print("\n📌 阶段详细指标：Final #7 vs V4.4 参考")
     print(
         f"{'阶段':<28} | "
         f"{'模型':<8} | "
@@ -470,8 +491,8 @@ def print_audit_report(df):
             continue
 
         for label, nav_col, net_col, turn_col, pos_col in [
-            ("V3", "V3_NAV", "V3_NetRet", "V3_Turnover", "V3_Position"),
-            ("V4.4", "V4_NAV", "V4_NetRet", "V4_Turnover", "V4_Position"),
+            ("Final#7", "V3_NAV", "V3_NetRet", "V3_Turnover", "V3_Position"),
+            ("V4.4参考", "V4_NAV", "V4_NetRet", "V4_Turnover", "V4_Position"),
         ]:
             m = calc_period_metrics(slice_df, nav_col, net_col, turn_col, pos_col)
             print(
@@ -537,7 +558,7 @@ def print_audit_report(df):
         f"Calmar {bh['calmar']:.2f}"
     )
     print(
-        f"   V3 基准   : CAGR {v3['cagr'] * 100:.2f}% | "
+        f"   Final #7 : CAGR {v3['cagr'] * 100:.2f}% | "
         f"TotalRet {v3['total_ret'] * 100:.2f}% | "
         f"MaxDD {v3['max_dd'] * 100:.2f}% | "
         f"Calmar {v3['calmar']:.2f} | "
@@ -546,7 +567,7 @@ def print_audit_report(df):
         f"Trades {v3['trade_count']}"
     )
     print(
-        f"   V4.4 插件 : CAGR {v4['cagr'] * 100:.2f}% | "
+        f"   V4.4 参考: CAGR {v4['cagr'] * 100:.2f}% | "
         f"TotalRet {v4['total_ret'] * 100:.2f}% | "
         f"MaxDD {v4['max_dd'] * 100:.2f}% | "
         f"Calmar {v4['calmar']:.2f} | "
@@ -559,7 +580,8 @@ def print_audit_report(df):
     # ========================================================
     # 5. 保存审计明细
     # ========================================================
-    out_csv = OUTPUT_DIR / "voo_robustness_audit_v2_timeseries.csv"
+    # todo 26-06- 17: 输出文件名带 final7，避免覆盖旧版审计明细。
+    out_csv = OUTPUT_DIR / "voo_final7_phase_backtest_timeseries.csv"
     df.to_csv(out_csv, encoding="utf-8-sig")
     print(f"\n💾 审计明细已保存: {out_csv.name}")
 
@@ -618,12 +640,12 @@ def get_max_drawdown_info(nav: pd.Series):
 
 def plot_single_regime_nav_with_drawdown(df_slice: pd.DataFrame, regime_name: str):
     """
-    绘制单个宏观阶段内三种模型的净值曲线，并标记最大回撤。
+    绘制单个阶段内三种模型的净值曲线，并标记最大回撤。
 
     三种模型：
     - Buy & Hold
-    - V3
-    - V4.4
+    - Final #7
+    - V4.4 参考插件
     """
     if df_slice.empty or len(df_slice) < 2:
         print(f"⚠️ 阶段 {regime_name} 数据不足，跳过绘图。")
@@ -635,12 +657,13 @@ def plot_single_regime_nav_with_drawdown(df_slice: pd.DataFrame, regime_name: st
             "color": "gray",
             "linestyle": "-",
         },
-        "V3 基准": {
+        # todo 26-06- 17: 图例主策略改名为 Final #7。
+        "Final #7": {
             "nav_col": "V3_NAV",
             "color": "black",
             "linestyle": "-",
         },
-        "V4.4 插件": {
+        "V4.4 参考": {
             "nav_col": "V4_NAV",
             "color": "#e74c3c",
             "linestyle": "-",
@@ -734,7 +757,7 @@ def plot_single_regime_nav_with_drawdown(df_slice: pd.DataFrame, regime_name: st
             )
 
     ax.set_title(
-        f"{regime_name}：三种模型阶段净值对比与最大回撤标记",
+        f"{regime_name}：Final #7 阶段净值对比与最大回撤标记",
         fontsize=16,
         fontweight="bold",
     )
@@ -743,7 +766,8 @@ def plot_single_regime_nav_with_drawdown(df_slice: pd.DataFrame, regime_name: st
     ax.grid(True, alpha=0.35)
     ax.legend(loc="upper left", fontsize=10)
 
-    output_path = OUTPUT_DIR / f"regime_nav_dd_{safe_filename(regime_name)}.png"
+    # todo 26-06- 17: 图片文件名带 final7，便于和旧版阶段图区分。
+    output_path = OUTPUT_DIR / f"final7_regime_nav_dd_{safe_filename(regime_name)}.png"
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
@@ -754,7 +778,7 @@ def plot_all_regimes_nav_with_drawdown(df: pd.DataFrame):
     """
     对 MACRO_REGIMES 中的每个阶段分别绘图。
     """
-    print("\n🖼️ 开始绘制各阶段三模型净值曲线与最大回撤标记...")
+    print("\n🖼️ 开始绘制 Final #7 各阶段净值曲线与最大回撤标记...")
 
     for regime_name, (start, end) in MACRO_REGIMES.items():
         mask = (df.index >= start) & (df.index <= end)
@@ -772,8 +796,8 @@ def main():
     df = prep_data()
     df = run_models(df)
     print_audit_report(df)
-    # todo:26-06-08:
-    # 新增绘图：按宏观阶段绘制 Buy & Hold / V3 / V4.4 净值曲线，
+    # todo 26-06- 17:
+    # 按阶段绘制 Buy & Hold / Final #7 / V4.4 参考净值曲线，
     # 并自动标记各模型在该阶段内的最大回撤。
     plot_all_regimes_nav_with_drawdown(df)
 

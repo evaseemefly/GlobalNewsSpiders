@@ -35,6 +35,7 @@ MASTER_FILE = DATA_DIR / "historical_broad_market_master.csv"
 
 TICKERS = {
     'VOO': 'VOO',
+    'RSP': 'RSP',
     'QQQ': 'QQQ',
     'SMH': 'SMH',
     'HYG': 'HYG',
@@ -44,10 +45,10 @@ TICKERS = {
 }
 
 # todo 26-06-17: 用多个美股资产作为交易日锚点，避免单一 VOO 缺失时误删真实交易日。
-US_MARKET_ANCHORS = ('VOO_close', 'QQQ_close', 'SMH_close', 'HYG_close')
+US_MARKET_ANCHORS = ('VOO_close', 'RSP_close', 'QQQ_close', 'SMH_close', 'HYG_close')
 
 # todo 26-06-17: 用这些美国市场列识别历史主表里由 ffill 生成的周末/未来脏行。
-US_MARKET_PREFIXES = ('VOO', 'QQQ', 'SMH', 'HYG', 'US10Y', 'VIX')
+US_MARKET_PREFIXES = ('VOO', 'QQQ', 'SMH', 'RSP', 'HYG', 'US10Y', 'VIX')
 
 # todo 26-06-17: 16:00 刚收盘时 Yahoo 数据可能仍抖动，18:00 美东后再视为安全收盘日。
 US_MARKET_SAFE_CLOSE_HOUR = 18
