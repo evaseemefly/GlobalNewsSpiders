@@ -1,121 +1,196 @@
-import pandas as pd
-import yfinance as yf
 import os
 import time
 import random
-from datetime import datetime
+import pandas as pd
+import yfinance as yf
+import platform
+import pytz
 from pathlib import Path
-from enum import Enum, auto
-from curl_cffi import requests as cffi_requests   # ← 关键防封禁库
+from datetime import datetime, timedelta
 
-# ==================== 1. V2Ray 代理配置 ====================
-# PROXY_URL = 'http://127.0.0.1:7890'   # ← 根据你当前环境修改（Mac 通常是 1087，Ubuntu 是 7890）
-PROXY_URL = 'http://127.0.0.1:1087'   # ← 根据你当前环境修改（Mac 通常是 1087，Ubuntu 是 7890）
+from apscheduler.schedulers.blocking import BlockingScheduler
+# 【核心引入】：引入 curl_cffi 来构建满足雅虎胃口的底层会话
+from curl_cffi import requests as cffi_requests
+
+# ==========================================
+# 🌐 V2Ray 代理配置 (Ubuntu 环境)
+# ==========================================
+PROXY_URL = 'http://127.0.0.1:7890'
 
 os.environ['HTTP_PROXY'] = PROXY_URL
 os.environ['HTTPS_PROXY'] = PROXY_URL
 if 'NO_PROXY' in os.environ:
     del os.environ['NO_PROXY']
 
-# ==================== 2. 环境配置 ====================
-class EnvType(Enum):
-    HOME = auto()
-    WORK = auto()
+# ==========================================
+# 配置目录与资产
+# ==========================================
+DATA_DIR = Path("/home/evaseemefly/01data/05-spiders") / 'broad_market_history'
+MASTER_FILE = DATA_DIR / "historical_broad_market_master.csv"
 
-def get_env_config(env: EnvType) -> dict:
-    if env == EnvType.HOME:
-        base_path = Path("/Users/evaseemefly/03data/05-spiders")
-    elif env == EnvType.WORK:
-        base_path = Path("/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders")
-    else:
-        raise ValueError(f"未知的环境类型: {env}")
+TICKERS = {
+    'VOO': 'VOO',
+    'QQQ': 'QQQ',
+    'SMH': 'SMH',
+    'HYG': 'HYG',
+    'BTC': 'BTC-USD',
+    'US10Y': '^TNX',
+    'VIX': '^VIX',
+}
 
-    config = {
-        'csv_file': base_path / "broad_market_history/historical_broad_market_master.csv",
-        'output_dir': base_path / "output/trade_msg",
-        'figures_dir': base_path / "output/trade_msg/figures",
-        'individual_stocks_dir': base_path / "output/trade_msg/individual_stocks"
-    }
 
-    for key in ['output_dir', 'figures_dir', 'individual_stocks_dir']:
-        config[key].mkdir(parents=True, exist_ok=True)
+def get_us_market_end_date() -> str:
+    """获取正确的美东时间作为数据终点"""
+    ny_tz = pytz.timezone('US/Eastern')
+    ny_time = datetime.now(ny_tz)
 
-    return config
+    # 美股通常在美东时间 16:00 收盘
+    # 如果当前时间早于 16:00，说明当天的交易尚未结束，应避免拉取残缺的盘中数据
+    if ny_time.hour < 16:
+        ny_time -= timedelta(days=1)
 
-CURRENT_ENV = EnvType.WORK
-CONFIG = get_env_config(CURRENT_ENV)
+    # yfinance 的 end 参数是不包含 (exclusive) 的，因此向后推一天
+    end_date = ny_time + timedelta(days=1)
+    return end_date.strftime('%Y-%m-%d')
 
-print(f"⚙️ 运行环境: [{CURRENT_ENV.name}]")
-print(f"📂 个股数据将保存至: {CONFIG['individual_stocks_dir']}")
 
-# ==================== 3. 防封禁 Session ====================
-def get_custom_session():
+def download_latest_data(last_date: pd.Timestamp) -> pd.DataFrame:
+    """自动下载带有安全重叠期的增量数据"""
+
+    # 💡 核心优化：往前多推 3 天作为起点，形成数据重叠区，防止节假日断层
+    start_date = (last_date - timedelta(days=3)).strftime('%Y-%m-%d')
+    # 🕒 修复：使用严格的美东时区计算安全截止日，摆脱服务器本地时间干扰
+    end_date = get_us_market_end_date()
+
+    print(f"📡 正在通过防封禁通道下载 {start_date} 至 {end_date} (Exclusive) 的增量数据...")
+
+    # 🛡️ 构建防弹 Session
     proxies_dict = {"http": PROXY_URL, "https": PROXY_URL}
-    return cffi_requests.Session(proxies=proxies_dict, impersonate="chrome110")
+    custom_session = cffi_requests.Session(proxies=proxies_dict, impersonate="chrome110")
 
-# ==================== 4. 个股每日数据下载（带防封禁 + 重试） ====================
-def fetch_daily_stock_data(tickers: list, start_date: str = "2023-01-01"):
-    print(f"📥 正在通过代理 + curl_cffi 下载 {tickers} 的每日交易数据...")
+    data_list = []
 
-    custom_session = get_custom_session()
-    final_df = pd.DataFrame()
-
-    for ticker in tickers:
-        max_retries = 5
+    for name, symbol in TICKERS.items():
+        max_retries = 3
         for attempt in range(max_retries):
             try:
-                print(f"   📥 {ticker} 第 {attempt+1}/{max_retries} 次尝试...")
-                stock = yf.Ticker(ticker, session=custom_session)
-                df = stock.history(start=start_date, end=datetime.today().strftime('%Y-%m-%d'), interval="1d")
+                # 使用最稳健的 Ticker + Session 模式
+                ticker_obj = yf.Ticker(symbol, session=custom_session)
+                hist = ticker_obj.history(start=start_date, end=end_date, interval="1d")
 
-                if df.empty:
-                    print(f"   ⚠️ {ticker} 返回空数据")
-                    break
+                if not hist.empty:
+                    # 时区清洗对齐
+                    hist.index = hist.index.tz_localize(None).normalize()
 
-                # 清洗列名
-                temp_df = pd.DataFrame({
-                    f"{ticker}_open":   df['Open'].round(4),
-                    f"{ticker}_high":   df['High'].round(4),
-                    f"{ticker}_low":    df['Low'].round(4),
-                    f"{ticker}_close":  df['Close'].round(4),
-                    f"{ticker}_volume": df['Volume']
-                })
-                temp_df.index.name = 'trade_date_utc'
-
-                final_df = pd.concat([final_df, temp_df], axis=1) if not final_df.empty else temp_df
-
-                print(f"   ✅ {ticker} 下载成功: {len(df)} 条记录")
-                break
+                    # 提取特征并规范命名
+                    temp_df = pd.DataFrame({
+                        f'{name}_open': hist['Open'].round(4),
+                        f'{name}_high': hist['High'].round(4),
+                        f'{name}_low': hist['Low'].round(4),
+                        f'{name}_close': hist['Close'].round(4),
+                        f'{name}_volume': hist['Volume']
+                    })
+                    data_list.append(temp_df)
+                    print(f"   ✅ {name} ({symbol}) 获取成功: {len(temp_df)} 条")
+                    break  # 成功，跳出重试循环
+                else:
+                    print(f"   ⚠️ {name} 返回数据为空 (尝试 {attempt + 1}/{max_retries})")
 
             except Exception as e:
+                error_msg = str(e)
                 if attempt < max_retries - 1:
-                    sleep_time = random.uniform(8, 25)
-                    print(f"   ⚠️ {ticker} 触发限流，等待 {sleep_time:.1f} 秒后重试...")
+                    sleep_time = random.uniform(5.0, 15.0)
+                    print(f"   ⚠️ 触发风控拦截 ({name})! 冷冻 {sleep_time:.1f} 秒后重试...")
                     time.sleep(sleep_time)
                 else:
-                    print(f"   ❌ {ticker} 连续失败: {e}")
+                    print(f"   ❌ 获取 {name} 失败: {error_msg}")
 
-        time.sleep(random.uniform(2, 5))   # 每次 ticker 间随机间隔
+        # 随机停顿，防止并发封锁
+        time.sleep(random.uniform(2.0, 4.0))
 
-    if final_df.empty:
-        print("❌ 所有股票下载失败")
-        return None
+    if not data_list:
+        print("❌ 未下载到任何新数据")
+        return pd.DataFrame()
 
-    final_df = final_df.ffill()
-    print(f"✅ 下载完成！共 {len(final_df)} 个交易日的数据。")
+    # 合并所有资产数据（利用 index 日期自动对齐）
+    merged = pd.concat(data_list, axis=1)
+    merged.index.name = 'trade_date_utc'
 
-    # 保存
-    save_path = CONFIG['individual_stocks_dir'] / "nvda_tsla_daily_master.csv"
-    final_df.to_csv(save_path)
-    print(f"💾 数据已保存至: {save_path}")
+    # ==================== 核心清洗逻辑 ====================
+    # 以 VOO (美股宽基) 作为日历锚点。
+    # 只要 VOO 当天没有收盘价数据（周末、美股节假日），就彻底删除这一天。
+    # 这将完美剥离 BTC 带来的周末数据污染。
+    if 'VOO_close' in merged.columns:
+        merged = merged.dropna(subset=['VOO_close'])
 
-    print("\n📊 最新 3 天快照：")
-    print(final_df.tail(3))
+    # 剔除了无效日之后，再使用 ffill() 处理那些 VOO 交易但个别资产（如某些指数短暂停更）缺失的情况
+    merged = merged.ffill().dropna()
+    # ========================================================
 
-    return final_df
+    # 把 index 释放为普通列，供后续的 update_master 去重使用
+    merged = merged.reset_index()
+    return merged
 
 
-# ==================== 执行 ====================
+def update_master():
+    print("=== 🚀 每日全自动数据更新开始 ===")
+
+    # 1. 读取主文件，确定最后日期
+    if MASTER_FILE.exists():
+        master = pd.read_csv(MASTER_FILE)
+        master['trade_date_utc'] = pd.to_datetime(master['trade_date_utc'])
+        last_date = master['trade_date_utc'].max()
+        print(f"当前主文件最后日期: {last_date.date()}  (共 {len(master)} 条记录)")
+    else:
+        print("⚠️ 主文件不存在，将拉取极长历史数据（可能需要较长时间）")
+        last_date = pd.Timestamp('2014-09-16')
+        master = pd.DataFrame()
+
+    # 2. 自动下载最新增量数据
+    new_data = download_latest_data(last_date)
+
+    if new_data.empty:
+        print("✅ 没有新数据需要更新")
+        return
+
+    # 3. 合并 + 无缝去重缝合
+    combined = pd.concat([master, new_data], ignore_index=True)
+
+    # 💡 核心：因为我们的增量拉取包含了重叠的旧日期，这里必须用 keep='last'
+    # 这样如果有日期冲突，系统会保留刚刚拉下来的最新数据（修正过的前复权或最新收盘价）
+    combined = combined.drop_duplicates(subset=['trade_date_utc'], keep='last')
+    combined = combined.sort_values('trade_date_utc').reset_index(drop=True)
+
+    # 4. 保存落盘
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    combined.to_csv(MASTER_FILE, index=False)
+
+    print(f"\n🎉 更新完成！")
+    print(f"   主文件当前共 {len(combined)} 条记录")
+    print(f"   最新交易日已更新至: {combined['trade_date_utc'].max().date()}")
+
+
+def main():
+    print(f"=== 🚀 宽基指数与大类资产 (日线) 全自动增量更新服务启动 ===")
+    print(f"🖥️ 当前运行环境: {platform.system()}")
+
+    # 1. 启动服务时，先立刻跑一次，确保系统当前数据是最新的
+    update_master()
+
+    # 2. 注册定时任务引擎
+    scheduler = BlockingScheduler(timezone="UTC")
+
+    # 设定在每天 UTC 时间 22:00 运行一次
+    # (美股正常交易时段在美东 16:00 收盘，夏令时对应 UTC 20:00，冬令时对应 UTC 21:00)
+    # 设定在 22:00 可以完美避开盘后数据的微调，拿到最稳固的“最终结算价”
+    scheduler.add_job(update_master, 'cron', hour='22', minute='0', id='broad_market_daily_job')
+
+    print("⏳ 宽基日线定时任务已注册 (每日 UTC 22:00 执行一次)，挂机中...")
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        print("\n⏹️ 宽基全自动增量更新服务已安全停止。")
+
+
 if __name__ == "__main__":
-    target_stocks = ['NVDA', 'TSLA']
-    fetch_daily_stock_data(target_stocks, start_date="2023-01-01")
+    main()
