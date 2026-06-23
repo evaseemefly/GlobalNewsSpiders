@@ -8,14 +8,23 @@ import pandas as pd
 
 
 V3_CAGR_SCRIPT = Path(
-    "/Users/evaseemefly/02proj/GlobalNewsSpiders/quant_backtest/v3/backtest_voo_hybrid_v3_cagr_constraints.py"
+    __file__
+).with_name(
+    "backtest_voo_hybrid_v3_cagr_constraints.py"
 )
 CSV_FILE_PATH = Path(
     "/Volumes/DRCC_DATA/11SPIDER_DATA/05-spiders/broad_market_history/historical_broad_market_master.csv"
 )
 OUTPUT_DIR = Path(__file__).parent
-MODIFIED_MAX_DD_LIMIT = -0.20
+FINAL_MAX_DD_LIMIT = -0.18
 CALMAR_FLOOR = 0.60
+FINAL_SELECTED_PARAMS = {
+    "ma_len": 150,
+    "us10y_th": 0.08,
+    "vix_th": 38,
+    "rsi_th": 32,
+    "risk_pos": 0.3,
+}
 
 PERIODS = [
     ("全样本", None, None),
@@ -76,6 +85,26 @@ def calc_metrics_from_returns(returns: pd.Series, exposure: pd.Series) -> dict:
     }
 
 
+def filter_real_trading_days(df: pd.DataFrame, asset: str = "VOO") -> pd.DataFrame:
+    """
+    过滤真实交易日，避免周末 ffill 复制价格导致日涨跌幅和信号滞后失真。
+    """
+    df = df.copy()
+    close_col = f"{asset}_close"
+    volume_col = f"{asset}_volume"
+
+    if close_col not in df.columns:
+        raise KeyError(f"缺少字段: {close_col}")
+
+    df = df[df[close_col].notna()]
+    df = df[df.index.dayofweek < 5]
+
+    if volume_col in df.columns:
+        df = df[df[volume_col] > 0]
+
+    return df.ffill()
+
+
 def calc_period_metrics(df: pd.DataFrame, position: pd.Series, start: Optional[str], end: Optional[str]) -> dict:
     returns = position * df["VOO_close"].pct_change().fillna(0)
     if start:
@@ -105,6 +134,26 @@ def sort_for_cagr_constraint(results: list) -> list:
         key=lambda x: (x["cagr"], x["calmar"], x["max_dd"], -x["avg_exposure"]),
         reverse=True,
     )
+
+
+def format_params(r: dict) -> str:
+    return (
+        f"MA{r['ma_len']} | US10Y>{r['us10y_th']} | "
+        f"VIX>{r['vix_th']} | RSI<{r['rsi_th']} | risk_pos={r['risk_pos']}"
+    )
+
+
+def find_result_by_params(results: list, params: dict) -> dict:
+    for r in results:
+        if (
+                r["ma_len"] == params["ma_len"]
+                and r["us10y_th"] == params["us10y_th"]
+                and r["vix_th"] == params["vix_th"]
+                and r["rsi_th"] == params["rsi_th"]
+                and r["risk_pos"] == params["risk_pos"]
+        ):
+            return r
+    raise ValueError(f"未找到最终选定参数: {params}")
 
 
 def format_pct(value: float) -> str:
@@ -176,7 +225,8 @@ def main() -> None:
 
     df = pd.read_csv(CSV_FILE_PATH)
     df["trade_date_utc"] = pd.to_datetime(df["trade_date_utc"])
-    df = df.set_index("trade_date_utc").sort_index().ffill()
+    df = df.set_index("trade_date_utc").sort_index()
+    df = filter_real_trading_days(df, asset="VOO")
 
     ma_lens = [80, 100, 120, 150, 180, 200]
     us10y_ths = [0.08, 0.10, 0.12, 0.15]
@@ -193,6 +243,7 @@ def main() -> None:
         key=lambda x: (x["calmar"], x["cagr"], -x["avg_exposure"]),
         reverse=True,
     )[0]
+    final_selected = find_result_by_params(results, FINAL_SELECTED_PARAMS)
 
     strategies = [
         {
@@ -202,36 +253,19 @@ def main() -> None:
         },
         {
             "name": "v3 Calmar最优",
-            "params": (
-                f"MA{calmar_best['ma_len']} | US10Y>{calmar_best['us10y_th']} | "
-                f"VIX>{calmar_best['vix_th']} | RSI<{calmar_best['rsi_th']} | risk_pos={calmar_best['risk_pos']}"
-            ),
+            "params": format_params(calmar_best),
             "position": calmar_best["position"],
+        },
+        {
+            "name": "v3_cagr最终选定",
+            "params": (
+                f"{format_params(final_selected)} | "
+                f"selection: MaxDD>={FINAL_MAX_DD_LIMIT * 100:.0f}%, Calmar>={CALMAR_FLOOR:.2f}, OOS优先"
+            ),
+            "position": final_selected["position"],
         },
     ]
 
-    for max_dd_limit in [-0.18, -0.20, -0.22]:
-        constrained = [
-            r for r in results
-            if r["max_dd"] >= max_dd_limit and r["calmar"] >= CALMAR_FLOOR
-        ]
-        winner = sort_for_cagr_constraint(constrained)[0]
-        strategies.append(
-            {
-                "name": f"v3 CAGR约束 {max_dd_limit * 100:.0f}%",
-                "params": (
-                    f"MA{winner['ma_len']} | US10Y>{winner['us10y_th']} | "
-                    f"VIX>{winner['vix_th']} | RSI<{winner['rsi_th']} | risk_pos={winner['risk_pos']}"
-                ),
-                "position": winner["position"],
-            }
-        )
-
-    modified_candidates = [
-        r for r in results
-        if r["max_dd"] >= MODIFIED_MAX_DD_LIMIT and r["calmar"] >= CALMAR_FLOOR
-    ]
-    modified_best = sort_for_cagr_constraint(modified_candidates)[0]
     plot_strategies = [
         {
             "name": "Buy&Hold VOO",
@@ -242,21 +276,15 @@ def main() -> None:
         },
         {
             "name": "原始v3 Calmar最优",
-            "params": (
-                f"MA{calmar_best['ma_len']} | US10Y>{calmar_best['us10y_th']} | "
-                f"VIX>{calmar_best['vix_th']} | RSI<{calmar_best['rsi_th']} | risk_pos={calmar_best['risk_pos']}"
-            ),
+            "params": format_params(calmar_best),
             "position": calmar_best["position"],
             "linewidth": 2.4,
             "alpha": 0.95,
         },
         {
-            "name": f"修改版v3 CAGR约束 {MODIFIED_MAX_DD_LIMIT * 100:.0f}%",
-            "params": (
-                f"MA{modified_best['ma_len']} | US10Y>{modified_best['us10y_th']} | "
-                f"VIX>{modified_best['vix_th']} | RSI<{modified_best['rsi_th']} | risk_pos={modified_best['risk_pos']}"
-            ),
-            "position": modified_best["position"],
+            "name": "v3_cagr最终选定",
+            "params": format_params(final_selected),
+            "position": final_selected["position"],
             "linewidth": 2.8,
             "alpha": 1.0,
         },
@@ -294,7 +322,12 @@ def main() -> None:
 
     with md_path.open("w") as f:
         f.write("# V3 阶段回测对照\n\n")
-        f.write("对比对象：Buy&Hold VOO、v3 Calmar 最优、以及三档 CAGR 约束赢家。\n\n")
+        f.write(
+            "对比对象：Buy&Hold VOO、v3 Calmar 最优、以及最终人工选定的 v3_cagr 方案。\n\n"
+            f"v3_cagr 最终方案：{format_params(final_selected)}；"
+            f"筛选约束 MaxDD>={FINAL_MAX_DD_LIMIT * 100:.0f}%，"
+            f"Calmar>={CALMAR_FLOOR:.2f}，样本外优先。\n\n"
+        )
         for period_name, _, _ in PERIODS:
             f.write(f"## {period_name}\n\n")
             part = display[display["period"] == period_name].drop(columns=["period", "params"])

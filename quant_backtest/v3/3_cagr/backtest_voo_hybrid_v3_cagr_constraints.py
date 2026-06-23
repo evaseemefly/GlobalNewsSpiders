@@ -14,7 +14,15 @@ CSV_FILE_PATH = Path(
 )
 OUTPUT_DIR = Path(__file__).parent
 CALMAR_FLOOR = 0.60
-MAX_DD_LIMITS = [-0.18, -0.20, -0.22]
+MAX_DD_LIMITS = [-0.16, -0.18, -0.20, -0.22]
+FINAL_MAX_DD_LIMIT = -0.18
+FINAL_SELECTED_PARAMS = {
+    'ma_len': 150,
+    'us10y_th': 0.08,
+    'vix_th': 38,
+    'rsi_th': 32,
+    'risk_pos': 0.3,
+}
 
 
 def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
@@ -62,6 +70,26 @@ def calc_metrics(nav: pd.Series, position: pd.Series) -> dict:
     }
 
 
+def filter_real_trading_days(df: pd.DataFrame, asset: str = 'VOO') -> pd.DataFrame:
+    """
+    过滤真实交易日，避免周末 ffill 复制价格导致日涨跌幅和信号滞后失真。
+    """
+    df = df.copy()
+    close_col = f'{asset}_close'
+    volume_col = f'{asset}_volume'
+
+    if close_col not in df.columns:
+        raise KeyError(f'缺少字段: {close_col}')
+
+    df = df[df[close_col].notna()]
+    df = df[df.index.dayofweek < 5]
+
+    if volume_col in df.columns:
+        df = df[df[volume_col] > 0]
+
+    return df.ffill()
+
+
 def run_strategy(df: pd.DataFrame, ma_len: int, us10y_th: float, vix_th: float, rsi_th: int, risk_pos: float) -> dict:
     df = df.copy()
     df['VOO_MA'] = df['VOO_close'].rolling(window=ma_len, min_periods=1).mean()
@@ -78,9 +106,9 @@ def run_strategy(df: pd.DataFrame, ma_len: int, us10y_th: float, vix_th: float, 
     risk_off = us10y_rising | hyg_divergence | vix_risk
 
     raw_dip_buy = (
-        (df['RSI_14'] < rsi_th)
-        & (df['VOO_close'] > df['VOO_open'])
-        & (df['VIX_close'] < df['VIX_close'].shift(1))
+            (df['RSI_14'] < rsi_th)
+            & (df['VOO_close'] > df['VOO_open'])
+            & (df['VIX_close'] < df['VIX_close'].shift(1))
     )
 
     # Revised: 系统性避险优先。risk_off 期间不允许 dip_buy 把仓位重新拉满。
@@ -178,7 +206,8 @@ def print_regime_checks(df: pd.DataFrame, best: dict) -> None:
 def print_oos_top10(df: pd.DataFrame, results: list[dict], top_n: int = 10) -> None:
     print(f"\n🔎 全样本 Top {top_n} 在样本外 2022-至今的表现:")
     print("-" * 120)
-    print(f"{'排名':<4} {'MA':<4} {'US10Y↑':<7} {'VIX>':<5} {'RSI<':<5} {'风险仓位':<8} {'年化':<9} {'回撤':<9} {'Calmar':<8}")
+    print(
+        f"{'排名':<4} {'MA':<4} {'US10Y↑':<7} {'VIX>':<5} {'RSI<':<5} {'风险仓位':<8} {'年化':<9} {'回撤':<9} {'Calmar':<8}")
     print("-" * 120)
 
     for i, r in enumerate(results[:top_n], 1):
@@ -205,6 +234,26 @@ def result_row(r: dict) -> dict:
         'dd_peak': dd_peak,
         'dd_trough': dd_trough,
     }
+
+
+def format_params(r: dict) -> str:
+    return (
+        f"MA{r['ma_len']} | US10Y>{r['us10y_th']} | "
+        f"VIX>{r['vix_th']} | RSI<{r['rsi_th']} | 风险仓位 {r['risk_pos']}"
+    )
+
+
+def find_result_by_params(results: list[dict], params: dict) -> dict:
+    for r in results:
+        if (
+                r['ma_len'] == params['ma_len']
+                and r['us10y_th'] == params['us10y_th']
+                and r['vix_th'] == params['vix_th']
+                and r['rsi_th'] == params['rsi_th']
+                and r['risk_pos'] == params['risk_pos']
+        ):
+            return r
+    raise ValueError(f"未找到最终选定参数: {params}")
 
 
 def sort_for_cagr_constraint(results: list[dict]) -> list[dict]:
@@ -292,6 +341,47 @@ def print_constraint_winner_checks(df: pd.DataFrame, winners: list[dict]) -> Non
             )
 
 
+def print_selected_strategy_checks(df: pd.DataFrame, selected: dict, constrained_rank: int) -> None:
+    periods = [
+        ('全样本', None, None),
+        ('训练段 2014-2021', '2014-01-01', '2021-12-31'),
+        ('样本外 2022-至今', '2022-01-01', None),
+        ('COVID 2020', '2020-01-01', '2020-12-31'),
+        ('加息熊市 2022', '2022-01-01', '2022-12-31'),
+        ('近三年 2023-至今', '2023-01-01', None),
+    ]
+
+    print("\n🎯 最终人工选定 v3_cagr 参数方案")
+    print("-" * 110)
+    print(f"参数: {format_params(selected)}")
+    print(
+        f"筛选口径: MaxDD >= {FINAL_MAX_DD_LIMIT * 100:.0f}% | "
+        f"Calmar >= {CALMAR_FLOOR:.2f} | 样本外表现优先"
+    )
+    print(
+        f"约束表内 CAGR 排名: {constrained_rank} | "
+        f"全样本年化: {selected['cagr'] * 100:.2f}% | "
+        f"最大回撤: {selected['max_dd'] * 100:.2f}% | "
+        f"Calmar: {selected['calmar']:.2f} | "
+        f"平均仓位: {selected['avg_exposure']:.1f}%"
+    )
+
+    print("\n🧪 最终选定方案分阶段稳定性检查:")
+    print("-" * 100)
+    print(f"{'阶段':<18} {'年化':<9} {'回撤':<9} {'Calmar':<8} {'平均仓位':<8} {'回撤区间':<25}")
+    print("-" * 100)
+
+    for label, start, end in periods:
+        m = calc_period_metrics(df, selected, start, end)
+        dd_peak = m['dd_peak'].strftime('%Y-%m-%d') if pd.notna(m['dd_peak']) else 'N/A'
+        dd_trough = m['dd_trough'].strftime('%Y-%m-%d') if pd.notna(m['dd_trough']) else 'N/A'
+        dd_range = f"{dd_peak} -> {dd_trough}"
+        print(
+            f"{label:<18} {m['cagr'] * 100:>7.2f}% {m['max_dd'] * 100:>8.2f}% "
+            f"{m['calmar']:>7.2f} {m['avg_exposure']:>7.1f}% {dd_range:<25}"
+        )
+
+
 def plot_constraint_winners(df: pd.DataFrame, winners: list[dict], output_pic_path: Path) -> None:
     if not winners:
         return
@@ -330,6 +420,55 @@ def plot_constraint_winners(df: pd.DataFrame, winners: list[dict], output_pic_pa
         ax2.get_ylim()[0],
         ax2.get_ylim()[1],
         where=(best['position'] < 0.8),
+        color='red',
+        alpha=0.12,
+        label='Reduced Exposure',
+    )
+    ax2.set_ylabel('VOO Price')
+    ax2.legend(loc='upper left', fontsize=9)
+    ax2.grid(True, alpha=0.5)
+
+    plt.savefig(output_pic_path, dpi=200, bbox_inches='tight')
+    plt.close()
+
+
+def plot_selected_strategy(df: pd.DataFrame, selected: dict, output_pic_path: Path) -> None:
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 12), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
+    plt.subplots_adjust(hspace=0.05)
+
+    baseline_nav = (1 + df['VOO_close'].pct_change().fillna(0)).cumprod()
+    ax1.plot(df.index, baseline_nav, label='Baseline (死拿 VOO)', color='gray', alpha=0.7, linewidth=2)
+    ax1.plot(
+        df.index,
+        selected['nav'],
+        label=(
+            f"Final Selected | {format_params(selected)} | "
+            f"CAGR {selected['cagr'] * 100:.2f}% | DD {selected['max_dd'] * 100:.2f}% | "
+            f"Calmar {selected['calmar']:.2f}"
+        ),
+        color='tab:blue',
+        linewidth=2.8,
+    )
+
+    ax1.set_title('VOO v3_cagr 最终人工选定方案', fontsize=16, fontweight='bold')
+    ax1.set_ylabel('Net Asset Value (log scale)')
+    ax1.set_yscale('log')
+    ax1.legend(loc='upper left', fontsize=9)
+    ax1.grid(True, alpha=0.5)
+
+    ax2.plot(df.index, df['VOO_close'], label='VOO Price', color='black')
+    ax2.plot(
+        df.index,
+        df['VOO_close'].rolling(selected['ma_len']).mean(),
+        label=f'VOO MA{selected["ma_len"]}',
+        color='orange',
+        linestyle='--',
+    )
+    ax2.fill_between(
+        df.index,
+        ax2.get_ylim()[0],
+        ax2.get_ylim()[1],
+        where=(selected['position'] < 0.8),
         color='red',
         alpha=0.12,
         label='Reduced Exposure',
@@ -393,7 +532,8 @@ def main() -> None:
     print("=== 🚀 VOO v3 CAGR 最大化约束搜索 ===")
     df = pd.read_csv(CSV_FILE_PATH)
     df['trade_date_utc'] = pd.to_datetime(df['trade_date_utc'])
-    df = df.set_index('trade_date_utc').sort_index().ffill()
+    df = df.set_index('trade_date_utc').sort_index()
+    df = filter_real_trading_days(df, asset='VOO')
 
     ma_lens = [80, 100, 120, 150, 180, 200]
     us10y_ths = [0.08, 0.10, 0.12, 0.15]
@@ -428,20 +568,42 @@ def main() -> None:
     winners = select_constraint_winners(results, CALMAR_FLOOR)
     print_constraint_winner_checks(df, winners)
 
+    selected = find_result_by_params(results, FINAL_SELECTED_PARAMS)
+    final_constrained = sort_for_cagr_constraint(filter_by_constraints(results, FINAL_MAX_DD_LIMIT, CALMAR_FLOOR))
+    constrained_rank = final_constrained.index(selected) + 1
+    print_selected_strategy_checks(df, selected, constrained_rank)
+
     all_results_path = OUTPUT_DIR / "v3_cagr_constraint_all_results.csv"
     winners_path = OUTPUT_DIR / "v3_cagr_constraint_winners.csv"
+    selected_path = OUTPUT_DIR / "v3_cagr_selected_strategy.csv"
     pd.DataFrame([result_row(r) for r in sort_for_cagr_constraint(results)]).to_csv(all_results_path, index=False)
-    pd.DataFrame([result_row(r) | {'constraint_label': r['constraint_label'], 'max_dd_limit': r['max_dd_limit']} for r in winners]).to_csv(
+    pd.DataFrame(
+        [result_row(r) | {'constraint_label': r['constraint_label'], 'max_dd_limit': r['max_dd_limit']} for r in
+         winners]).to_csv(
         winners_path,
         index=False,
     )
+    pd.DataFrame(
+        [
+            result_row(selected) | {
+                'selection_label': 'final_selected_oos_preferred',
+                'max_dd_limit': FINAL_MAX_DD_LIMIT,
+                'calmar_floor': CALMAR_FLOOR,
+                'constrained_cagr_rank': constrained_rank,
+            }
+        ]
+    ).to_csv(selected_path, index=False)
 
     output_pic_path = OUTPUT_DIR / "v3_cagr_constraint_winners.png"
     plot_constraint_winners(df, winners, output_pic_path)
+    selected_pic_path = OUTPUT_DIR / "v3_cagr_selected_strategy.png"
+    plot_selected_strategy(df, selected, selected_pic_path)
 
     print(f"\n📄 全部搜索结果已保存: {all_results_path}")
-    print(f"📄 三档约束赢家已保存: {winners_path}")
-    print(f"🖼️ 三档约束赢家图表已保存: {output_pic_path}")
+    print(f"📄 自动约束赢家已保存: {winners_path}")
+    print(f"📄 最终人工选定方案已保存: {selected_path}")
+    print(f"🖼️ 自动约束赢家图表已保存: {output_pic_path}")
+    print(f"🖼️ 最终人工选定方案图表已保存: {selected_pic_path}")
 
 
 if __name__ == "__main__":
