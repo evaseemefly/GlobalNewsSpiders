@@ -41,8 +41,8 @@ ASSET_CONFIG = {
         'verbose': False,
         'live_state': {
             'stage': 2,
-            'cost_price': 400.268,
-            'shares': 11,
+            'cost_price': 408.21,
+            'shares': 12,
             'cash': 7000
         }
     },
@@ -61,9 +61,9 @@ ASSET_CONFIG = {
         'trailing_drop_pct': 0.08,  # 🌟 填 0.08 代表启用追踪雷达
         'verbose': False,
         'live_state': {
-            'stage': 1,
-            'cost_price': 647.5,
-            'shares': 3,
+            'stage': 0,
+            'cost_price': 0.0,
+            'shares': 0,
             'cash': 5000
         }
     },
@@ -78,8 +78,8 @@ ASSET_CONFIG = {
         'live_first_tranche_pct': 0.35,
         'live_state': {
             'stage': 0,
-            'cost_price': 0.0,
-            'shares': 0,
+            'cost_price': 1093.73,
+            'shares': 1,
             'cash': 6000,
         }
     },
@@ -92,9 +92,9 @@ ASSET_CONFIG = {
         'live_first_tranche_pct': 0.35,
         'live_state': {
             'stage': 1,
-            'cost_price': 184.15,
-            'shares': 32,
-            'cash': 0
+            'cost_price': 182.583,
+            'shares': 28,
+            'cash': 8000
         }
     },
     # 🌟 新增：博通 (强动量白马 - 紧凑网格 + 宽容追踪止盈)
@@ -113,9 +113,9 @@ ASSET_CONFIG = {
         'trailing_drop_pct': 0.08,  # WFO寻优结果：8%的宽容回撤清仓 (兼顾防守与吃大波段)
         'verbose': False,
         'live_state': {
-            'stage': 0,  # 假设目前空仓观望
-            'cost_price': 0.0,
-            'shares': 0,
+            'stage': 1,  # 假设目前空仓观望
+            'cost_price': 401.356,
+            'shares': 5,
             'cash': 8000  # 你准备分配给博通的建仓总资金 (请根据实际情况修改)
         }
     },
