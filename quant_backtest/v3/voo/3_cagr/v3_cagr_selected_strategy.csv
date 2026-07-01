@@ -1,0 +1,2 @@
+ma_len,us10y_th,vix_th,rsi_th,risk_pos,cagr,max_dd,calmar,avg_exposure,dd_peak,dd_trough,selection_label,max_dd_limit,calmar_floor,constrained_cagr_rank
+150,0.08,38,32,0.3,0.12196180122257472,-0.1590354126338147,0.7668845523317285,62.86874154262517,2020-02-19,2020-03-23,final_selected_oos_preferred,-0.18,0.6,7

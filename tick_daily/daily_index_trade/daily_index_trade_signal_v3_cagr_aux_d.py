@@ -103,6 +103,14 @@ ASSET_CONFIG = {
         "selection_objective": "maximize_cagr",
         "selection_max_dd_limit": -0.18,
         "selection_calmar_floor": 0.60,
+        "aux_d_enabled": True,
+        "aux_d_slope_lookback": 10,
+        "aux_d_slope_epsilon": 0.0,
+        "aux_d_breadth_lookback": 20,
+        "aux_d_breadth_epsilon": 0.0,
+        "aux_d_confirm_days": 3,
+        "aux_d_recovery_days": 3,
+        "aux_d_percentile_window": 252,
 
         # 趋势均线
         "ma_len": 150,
@@ -172,6 +180,70 @@ def is_qqq_three_layer_profile(p: dict) -> bool:
 def is_three_layer_profile(p: dict) -> bool:
     """判断是否使用三层状态机，而非五层状态机。"""
     return is_v3_cagr_profile(p) or is_qqq_three_layer_profile(p)
+
+
+def current_streak(mask: pd.Series) -> int:
+    """计算当前连续 True 天数。"""
+    if mask.empty:
+        return 0
+
+    count = 0
+    for value in mask.fillna(False).iloc[::-1]:
+        if bool(value):
+            count += 1
+        else:
+            break
+    return count
+
+
+def last_percentile_rank(series: pd.Series, window: int) -> float:
+    """
+    计算最新值在最近 window 个交易日中的百分位。
+    注意：这是 RSP/VOO 相对强弱百分位，不是真实成份股广度比例。
+    """
+    sample = series.dropna().tail(window)
+    if sample.empty:
+        return np.nan
+    return float((sample <= sample.iloc[-1]).mean())
+
+
+def build_confirmed_dual_weak_state(
+        ma_slope_weak: pd.Series,
+        breadth_weak: pd.Series,
+        confirm_days: int,
+        recovery_days: int,
+) -> pd.Series:
+    """
+    D 辅助风险状态：
+    - B 和 C 连续 confirm_days 同时弱，进入 confirmed dual weak；
+    - 任一指标连续 recovery_days 恢复，退出 confirmed 状态。
+    """
+    ma_slope_weak = ma_slope_weak.fillna(False)
+    breadth_weak = breadth_weak.fillna(False)
+
+    active_values = []
+    active = False
+    both_count = 0
+    slope_ok_count = 0
+    breadth_ok_count = 0
+
+    for dt in ma_slope_weak.index:
+        slope_weak = bool(ma_slope_weak.loc[dt])
+        breadth_is_weak = bool(breadth_weak.loc[dt])
+        both_weak = slope_weak and breadth_is_weak
+
+        both_count = both_count + 1 if both_weak else 0
+        slope_ok_count = 0 if slope_weak else slope_ok_count + 1
+        breadth_ok_count = 0 if breadth_is_weak else breadth_ok_count + 1
+
+        if not active and both_count >= confirm_days:
+            active = True
+        elif active and (slope_ok_count >= recovery_days or breadth_ok_count >= recovery_days):
+            active = False
+
+        active_values.append(active)
+
+    return pd.Series(active_values, index=ma_slope_weak.index, name="aux_d_dual_weak_confirmed")
 
 
 def load_master_data() -> pd.DataFrame:
@@ -245,6 +317,57 @@ def process_asset_indicators(df: pd.DataFrame, asset: str, p: dict) -> pd.DataFr
     # 若没有 open 字段，用 close 代替，避免报错
     if open_col not in df.columns:
         df[open_col] = df[close_col]
+
+    return df
+
+
+def add_aux_d_indicators(df: pd.DataFrame, asset: str, p: dict) -> pd.DataFrame:
+    """
+    添加 D 辅助风险指标。
+    该模块只用于 VOO v3_cagr 日报提示，不参与仓位计算。
+    """
+    if asset != "VOO" or not is_v3_cagr_profile(p) or not p.get("aux_d_enabled", False):
+        return df
+
+    required_cols = ["RSP_close", "VOO_close", "VOO_MA"]
+    missing = [col for col in required_cols if col not in df.columns]
+    if missing:
+        df["aux_d_available"] = False
+        return df
+
+    df = df.copy()
+    slope_lookback = p.get("aux_d_slope_lookback", 10)
+    slope_epsilon = p.get("aux_d_slope_epsilon", 0.0)
+    breadth_lookback = p.get("aux_d_breadth_lookback", 20)
+    breadth_epsilon = p.get("aux_d_breadth_epsilon", 0.0)
+    confirm_days = p.get("aux_d_confirm_days", 3)
+    recovery_days = p.get("aux_d_recovery_days", 3)
+
+    log_ma = np.log(df["VOO_MA"])
+    df["aux_d_ma_log_daily_slope"] = (log_ma - log_ma.shift(slope_lookback)) / slope_lookback
+    df["aux_d_ma_slope_weak"] = df["aux_d_ma_log_daily_slope"] <= slope_epsilon
+    df["aux_d_ma_slope_period_change"] = np.exp(df["aux_d_ma_log_daily_slope"] * slope_lookback) - 1
+
+    df["aux_d_rsp_voo_ratio"] = df["RSP_close"] / df["VOO_close"]
+    log_ratio = np.log(df["aux_d_rsp_voo_ratio"])
+    df["aux_d_rsp_voo_rel_daily_mom"] = (log_ratio - log_ratio.shift(breadth_lookback)) / breadth_lookback
+    df["aux_d_breadth_weak"] = df["aux_d_rsp_voo_rel_daily_mom"] <= breadth_epsilon
+    df["aux_d_rsp_lookback_return"] = df["RSP_close"].pct_change(breadth_lookback)
+    df["aux_d_voo_lookback_return"] = df["VOO_close"].pct_change(breadth_lookback)
+    df["aux_d_rsp_voo_return_spread"] = df["aux_d_rsp_lookback_return"] - df["aux_d_voo_lookback_return"]
+
+    df["aux_d_dual_weak_score"] = (
+            df["aux_d_ma_slope_weak"].astype(int)
+            + df["aux_d_breadth_weak"].astype(int)
+    )
+    df["aux_d_dual_weak_raw"] = df["aux_d_dual_weak_score"] == 2
+    df["aux_d_dual_weak_confirmed"] = build_confirmed_dual_weak_state(
+        df["aux_d_ma_slope_weak"],
+        df["aux_d_breadth_weak"],
+        confirm_days,
+        recovery_days,
+    )
+    df["aux_d_available"] = True
 
     return df
 
@@ -754,9 +877,76 @@ def build_execution_suggestion(
     return f"""
 📍 当前为 {market_state} 状态：目标仓位 {target_position * 100:.0f}%。
 💡 执行建议:
-   • 优先控制回撤，不做主动加仓。
+    • 优先控制回撤，不做主动加仓。
 {amount_plan}
 """
+
+
+def build_aux_d_report(df: pd.DataFrame, asset: str, p: dict) -> str:
+    """生成 VOO v3_cagr 的 D 辅助风险仪表盘文本。"""
+    if asset != "VOO" or not is_v3_cagr_profile(p) or not p.get("aux_d_enabled", False):
+        return ""
+
+    if "aux_d_available" not in df.columns or not bool(df["aux_d_available"].iloc[-1]):
+        return (
+            "🧭【D辅助风险仪表盘】\n"
+            "   • 状态          : 不可用，缺少 RSP/VOO 相关字段。\n"
+            "   • 说明          : D仅作辅助提示，不参与A模型仓位计算。\n\n"
+        )
+
+    today = df.iloc[-1]
+    slope_lookback = p.get("aux_d_slope_lookback", 10)
+    breadth_lookback = p.get("aux_d_breadth_lookback", 20)
+    percentile_window = p.get("aux_d_percentile_window", 252)
+
+    ma_slope_weak = bool(today["aux_d_ma_slope_weak"])
+    breadth_weak = bool(today["aux_d_breadth_weak"])
+    dual_weak_raw = bool(today["aux_d_dual_weak_raw"])
+    dual_weak_confirmed = bool(today["aux_d_dual_weak_confirmed"])
+    weak_score = int(today["aux_d_dual_weak_score"])
+
+    if dual_weak_confirmed:
+        risk_level = "黄色预警（双弱已连续确认）"
+    elif dual_weak_raw:
+        risk_level = "黄色预警（双弱初现/未确认）"
+    elif weak_score == 1:
+        risk_level = "观察（单项转弱）"
+    else:
+        risk_level = "正常"
+
+    trend_quality = "弱" if ma_slope_weak else "正常/修复"
+    breadth_quality = "弱" if breadth_weak else "正常/扩散"
+    raw_streak = current_streak(df["aux_d_dual_weak_raw"])
+    confirmed_streak = current_streak(df["aux_d_dual_weak_confirmed"])
+    slope_streak = current_streak(df["aux_d_ma_slope_weak"])
+    breadth_streak = current_streak(df["aux_d_breadth_weak"])
+    ratio_percentile = last_percentile_rank(df["aux_d_rsp_voo_ratio"], percentile_window)
+
+    slope_daily = today["aux_d_ma_log_daily_slope"] * 100
+    slope_period = today["aux_d_ma_slope_period_change"] * 100
+    rel_daily_mom = today["aux_d_rsp_voo_rel_daily_mom"] * 100
+    rsp_ret = today["aux_d_rsp_lookback_return"] * 100
+    voo_ret = today["aux_d_voo_lookback_return"] * 100
+    spread = today["aux_d_rsp_voo_return_spread"] * 100
+    percentile_text = f"{ratio_percentile * 100:.1f}%" if pd.notna(ratio_percentile) else "N/A"
+
+    return (
+        "🧭【D辅助风险仪表盘】\n"
+        "   • 定位          : 仅作风险质量提示，不改变A模型目标仓位。\n"
+        f"   • 趋势质量      : {trend_quality} "
+        f"(MA{p['ma_len']} {slope_lookback}日对数日斜率 {slope_daily:+.4f}%/日，"
+        f"{slope_lookback}日累计 {slope_period:+.2f}%，连续弱 {slope_streak} 日)\n"
+        f"   • 相对广度      : {breadth_quality} "
+        f"(RSP {breadth_lookback}日 {rsp_ret:+.2f}% vs VOO {voo_ret:+.2f}%，"
+        f"差值 {spread:+.2f}%，相对动量 {rel_daily_mom:+.4f}%/日)\n"
+        f"   • 广度代理百分位: RSP/VOO 最近{percentile_window}日百分位 {percentile_text} "
+        "(非成份股真实广度比例)\n"
+        f"   • 双弱共振状态  : {'是' if dual_weak_raw else '否'} "
+        f"(连续 {raw_streak} 日；3日确认状态 {'是' if dual_weak_confirmed else '否'}，"
+        f"连续 {confirmed_streak} 日)\n"
+        f"   • 风险等级      : {risk_level}\n"
+        "   • 行动约束      : 不自动减仓；若为黄色预警，暂停额外主观加仓/杠杆/闲置现金追加入VOO。\n\n"
+    )
 
 
 # ============================================================
@@ -907,6 +1097,7 @@ def generate_daily_report():
         # 关键修正：先过滤真实交易日，再计算指标
         asset_df = filter_real_trading_days(master_df, asset)
         df = process_asset_indicators(asset_df, asset, p)
+        df = add_aux_d_indicators(df, asset, p)
 
         # 加入历史仓位，用于净值/仓位图
         df = add_historical_position(df, asset, p)
@@ -940,6 +1131,7 @@ def generate_daily_report():
             target_position=target_position,
             amount_plan=amount_plan,
         )
+        aux_d_report = build_aux_d_report(df, asset, p)
 
         trend_dist = (today[f"{asset}_close"] / today[f"{asset}_MA"] - 1) * 100
 
@@ -970,6 +1162,7 @@ def generate_daily_report():
             f"   执行目标仓位 : {target_position * 100:.0f}%\n"
             f"   逻辑触发说明 : {action_reason}\n"
             f"{exec_suggestion}\n"
+            f"{aux_d_report}"
             f"🔍【关键指标快照】\n"
             f"   • {asset} 价格  : {today[f'{asset}_close']:.2f} "
             f"(MA{p['ma_len']}: {today[f'{asset}_MA']:.2f})\n"

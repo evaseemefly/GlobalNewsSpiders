@@ -77,9 +77,9 @@ ASSET_CONFIG = {
         'verbose': False,
         'live_first_tranche_pct': 0.35,
         'live_state': {
-            'stage': 0,
-            'cost_price': 1093.73,
-            'shares': 1,
+            'stage': 1,
+            'cost_price': 1076.26,
+            'shares': 2,
             'cash': 6000,
         }
     },
