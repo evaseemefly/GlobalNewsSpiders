@@ -21,8 +21,9 @@ def run_pipeline(is_need_download: bool = True):
     # 以后您只需要在这个主脚本里修改股票池，两个子脚本都会同步生效
     # 这里我们放入您之前提到的核心颠覆和高弹性标的
     # ---------------------------------------------------------
-    GLOBAL_TARGET_STOCKS = ['META', 'MSFT', 'NVDA', 'TSLA', 'MU', 'ASML', 'AMZN', 'MAGS', 'SMH', 'DRAM', 'SOXX', 'QQQ',
-                            'VOO', 'SPY']
+    GLOBAL_TARGET_STOCKS = ['MSFT', 'NVDA', 'GOOGL', 'DRAM', 'AVGO', 'AAPL', 'APH', 'ANET', 'CSCO', 'WDC', 'SOXX',
+                            'QQQ',
+                            'VOO', 'SPY', 'TSLA', 'MU', 'ASML', 'AMZN', 'MAGS', 'SMH', 'META']
     # GLOBAL_TARGET_STOCKS = ['MAGS', 'SMH', 'DRAM', 'SOXX', 'QQQ', 'VOO', 'SPY']
     GLOBAL_START_DATE = "2023-01-01"
 

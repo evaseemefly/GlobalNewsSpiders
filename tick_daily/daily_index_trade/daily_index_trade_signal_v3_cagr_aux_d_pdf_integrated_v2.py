@@ -99,7 +99,7 @@ ASSET_CONFIG = {
 
         # 实盘资金池与持仓
         "portfolio_value": 35730,
-        "current_shares": 20,
+        "current_shares": 23,
     },
 
     "VOO": {

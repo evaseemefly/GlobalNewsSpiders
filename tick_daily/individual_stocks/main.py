@@ -20,8 +20,8 @@ ASSET_CONFIG = {
         'verbose': False,
         'live_state': {
             'stage': 2,
-            'cost_price': 404.29,
-            'shares': 12,
+            'cost_price': 394.48,
+            'shares': 14,
             'cash': 6000
         }
     },
